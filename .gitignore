@@ -179,3 +179,16 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# =========================
+# DATA UNIVERSE SPECIFIC
+# =========================
+
+# Ignore raw datasets and generated JSONs
+Data/*.csv
+Data/*.json
+universe_data.json
+
+# Ignore Frontend dependencies (Vite usually handles this, but good to be safe)
+Frontend/node_modules/
+Frontend/dist/
