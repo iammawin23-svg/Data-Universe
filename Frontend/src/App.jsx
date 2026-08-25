@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, Html } from '@react-three/drei'
 import * as THREE from 'three'
 
 export default function App() {
@@ -45,6 +45,48 @@ export default function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: '100px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '0 32px', zIndex: 10, color: 'white', fontFamily: 'sans-serif',
+        background: 'linear-gradient(180deg, rgba(5,5,5,0.9) 0%, rgba(5,5,5,0) 100%)',
+        pointerEvents: 'none'
+      }}>
+        
+        {/* Top Left Placeholder */}
+        <div style={{ width: '300px' }}></div>
+
+        {/* Center Title & Stats */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', pointerEvents: 'auto' }}>
+          <div style={{ textAlign: 'center' }}>
+            <h1 style={{ margin: 0, fontSize: '1.8rem', letterSpacing: '6px', color: '#fff', textShadow: '0 0 20px rgba(255,255,255,0.3)' }}>
+              DATA UNIVERSE
+            </h1>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#888' }}>Explore. Discover. Understand your data.</p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            {[ 
+              { val: universeData.length || 0, label: 'Songs' },
+              { val: '8', label: 'Clusters' },
+              { val: '6', label: 'Features' },
+              { val: '2', label: 'Dimensions' }
+            ].map((stat, i) => (
+              <div key={i} style={{ 
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
+                padding: '8px 24px', borderRadius: '8px', textAlign: 'center', minWidth: '80px'
+              }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#00ffff' }}>{stat.val}</div>
+                <div style={{ fontSize: '0.65rem', color: '#aaa', textTransform: 'uppercase', marginTop: '4px' }}>{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top Right Placeholder */}
+        <div style={{ width: '300px' }}></div>
+      </div>
       
       {/* LEFT PANEL */}
       <div style={{
@@ -161,6 +203,8 @@ function TargetRing({ x, y, radius, color, speed }) {
   )
 }
 
+
+// --- Pointer ---
 function ConnectionLaser({ start, end, match, color }) {
   const particleRef = useRef()
   const intensity = Math.max(0, (match - 85) / 10) 
@@ -197,7 +241,63 @@ function ConnectionLaser({ start, end, match, color }) {
   )
 }
 
-// --- The Star Rendering ---
+// --- The Ring Rendering ---
+function TargetRing({ x, y, radius, color, speed }) {
+  const ringRef = useRef()
+  
+  useFrame(({ clock }) => {
+    const scale = 1 + Math.sin(clock.elapsedTime * speed) * 0.15
+    ringRef.current.scale.set(scale, scale, 1)
+  })
+  
+  return (
+    <mesh ref={ringRef} position={[x, y, 2.1]}>
+      <ringGeometry args={[radius, radius + 0.3, 32]} />
+      <meshBasicMaterial color={color} transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </mesh>
+  )
+}
+
+
+// --- Laser ---
+function ConnectionLaser({ start, end, match, color }) {
+  const particleRef = useRef()
+  
+  const intensity = Math.max(0, (match - 85) / 10) 
+  const lineOpacity = 0.02 + (intensity * 0.20) 
+  
+  const points = useMemo(() => new Float32Array([start.x, start.y, 1.5, end.x, end.y, 1.5]), [start, end])
+
+  useFrame(({ clock }) => {
+    const speed = 0.4 + (intensity * 0.4) 
+    const t = (clock.elapsedTime * speed) % 1.0 
+    
+    particleRef.current.position.x = start.x + (end.x - start.x) * t
+    particleRef.current.position.y = start.y + (end.y - start.y) * t
+    
+    particleRef.current.material.opacity = (1 - t) * (0.3 + intensity * 0.5)
+  })
+
+  return (
+    <group>
+      <line>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={2} array={points} itemSize={3} />
+        </bufferGeometry>
+        <lineBasicMaterial attach="material" color={color} transparent opacity={lineOpacity} blending={THREE.AdditiveBlending} />
+      </line>
+      
+      <mesh ref={particleRef} position={[start.x, start.y, 2.5]}>
+        <circleGeometry args={[0.3, 16]} />
+        <meshBasicMaterial color={color} transparent blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      <TargetRing x={end.x} y={end.y} radius={0.8} color={color} speed={2 + intensity * 2} />
+    </group>
+  )
+}
+
+// --- The Star Rendering Engine ---
 function UniverseStars({ data, onStarClick, selectedStar }) {
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -214,11 +314,28 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
     return new THREE.CanvasTexture(canvas)
   }, [])
 
+  // color palette
   const colorPalette = [
-    new THREE.Color('#ff0055'), new THREE.Color('#00ffff'), new THREE.Color('#ffcc00'),
-    new THREE.Color('#aa00ff'), new THREE.Color('#00ff00'), new THREE.Color('#ff6600'),
-    new THREE.Color('#0066ff'), new THREE.Color('#ffffff')
+    new THREE.Color('#e36658'), new THREE.Color('#a0caf2'), new THREE.Color('#f5e7a9'),
+    new THREE.Color('#d793f8'), new THREE.Color('#82e063'), new THREE.Color('#ffa346'),
+    new THREE.Color('#464acd'), new THREE.Color('#ffffff')
   ]
+
+  const GALAXY_NAMES = [
+    'Pop & Dance','Rock & Punk','Metal','Hip-Hop & R&B',
+    'Electronic','Acoustic & Folk','World & Latin','Classical & Other'
+  ]
+
+  const galaxyCenters = useMemo(() => {
+    const centers = {}
+    data.forEach(star => {
+      if(!centers[star.color_id]) centers[star.color_id] = {x: 0, y: 0, count: 0, id: star.color_id}
+      centers[star.color_id].x += star.x
+      centers[star.color_id].y += star.y
+      centers[star.color_id].count += 1
+    })
+    return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id}))
+  }, [data])
 
   const bgStars = useMemo(() => {
     const pos = [], col = []
@@ -265,6 +382,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
 
   return (
     <group>
+      {/* Background Stars */}
       <points>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={bgStars.p.length / 3} array={bgStars.p} itemSize={3} />
@@ -273,6 +391,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
+      {/* Nebula Fog */}
       <points>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.core.p.length / 3} array={tiers.core.p} itemSize={3} />
@@ -281,6 +400,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={35.0} map={glowTexture} vertexColors transparent opacity={0.015} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
+      {/* Dust, Core, Giants */}
       <points onClick={handleClick(tiers.dust.i)}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.dust.p.length / 3} array={tiers.dust.p} itemSize={3} />
@@ -305,6 +425,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={7.0} map={glowTexture} vertexColors transparent opacity={1.0} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
+      {/* Target Lock */}
       {selectedStar && (
         <group>
           <mesh position={[selectedStar.x, selectedStar.y, 2]}>
@@ -315,6 +436,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         </group>
       )}
 
+      {/* Connection Lasers */}
       {selectedStar && selectedStar.neighbors && selectedStar.neighbors.map((neighbor, idx) => {
         const neighborColor = colorPalette[neighbor.color_id % colorPalette.length];
         return (
@@ -325,6 +447,37 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
             match={neighbor.match} 
             color={neighborColor} 
           />
+        )
+      })}
+
+      {/* Labels */}
+      {galaxyCenters.map((center, i) => {
+        const c = colorPalette[center.id % colorPalette.length]
+        return (
+          <Html key={`label-${i}`} position={[center.x, center.y + 8, 0]} center zIndexRange={[100, 0]}>
+            <div style={{
+              background: 'rgba(15, 15, 20, 0.7)',
+              border: `1px solid ${c.getStyle()}`,
+              padding: '6px 12px',
+              borderRadius: '6px',
+              color: 'white',
+              fontFamily: 'sans-serif',
+              fontSize: '0.8rem',
+              backdropFilter: 'blur(8px)',
+              pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: `0 0 10px ${c.getStyle()}40`
+            }}>
+              <span style={{ color: c.getStyle(), fontSize: '1rem' }}>✦</span>
+              <strong>{GALAXY_NAMES[center.id]}</strong>
+              <span style={{ color: '#aaa', fontSize: '0.7rem', marginLeft: '4px' }}>
+                {Math.round(data.length / 8)} songs
+              </span>
+            </div>
+          </Html>
         )
       })}
     </group>
