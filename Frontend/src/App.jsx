@@ -44,8 +44,9 @@ export default function App() {
   }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+    <div style={{ width: '100vw', height: '100vh', background: '#050505', overflow: 'hidden', position: 'relative' }}>
 
+      {/* TOP HEADER & STATS BAR */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: '100px',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -186,7 +187,7 @@ export default function App() {
   )
 }
 
-// --- ANIMATION ---
+// --- ANIMATION COMPONENTS ---
 function TargetRing({ x, y, radius, color, speed }) {
   const ringRef = useRef()
   
@@ -203,8 +204,6 @@ function TargetRing({ x, y, radius, color, speed }) {
   )
 }
 
-
-// --- Pointer ---
 function ConnectionLaser({ start, end, match, color }) {
   const particleRef = useRef()
   const intensity = Math.max(0, (match - 85) / 10) 
@@ -241,63 +240,7 @@ function ConnectionLaser({ start, end, match, color }) {
   )
 }
 
-// --- The Ring Rendering ---
-function TargetRing({ x, y, radius, color, speed }) {
-  const ringRef = useRef()
-  
-  useFrame(({ clock }) => {
-    const scale = 1 + Math.sin(clock.elapsedTime * speed) * 0.15
-    ringRef.current.scale.set(scale, scale, 1)
-  })
-  
-  return (
-    <mesh ref={ringRef} position={[x, y, 2.1]}>
-      <ringGeometry args={[radius, radius + 0.3, 32]} />
-      <meshBasicMaterial color={color} transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} />
-    </mesh>
-  )
-}
-
-
-// --- Laser ---
-function ConnectionLaser({ start, end, match, color }) {
-  const particleRef = useRef()
-  
-  const intensity = Math.max(0, (match - 85) / 10) 
-  const lineOpacity = 0.02 + (intensity * 0.20) 
-  
-  const points = useMemo(() => new Float32Array([start.x, start.y, 1.5, end.x, end.y, 1.5]), [start, end])
-
-  useFrame(({ clock }) => {
-    const speed = 0.4 + (intensity * 0.4) 
-    const t = (clock.elapsedTime * speed) % 1.0 
-    
-    particleRef.current.position.x = start.x + (end.x - start.x) * t
-    particleRef.current.position.y = start.y + (end.y - start.y) * t
-    
-    particleRef.current.material.opacity = (1 - t) * (0.3 + intensity * 0.5)
-  })
-
-  return (
-    <group>
-      <line>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={2} array={points} itemSize={3} />
-        </bufferGeometry>
-        <lineBasicMaterial attach="material" color={color} transparent opacity={lineOpacity} blending={THREE.AdditiveBlending} />
-      </line>
-      
-      <mesh ref={particleRef} position={[start.x, start.y, 2.5]}>
-        <circleGeometry args={[0.3, 16]} />
-        <meshBasicMaterial color={color} transparent blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-
-      <TargetRing x={end.x} y={end.y} radius={0.8} color={color} speed={2 + intensity * 2} />
-    </group>
-  )
-}
-
-// --- The Star Rendering Engine ---
+// --- THE STAR RENDERING ENGINE ---
 function UniverseStars({ data, onStarClick, selectedStar }) {
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -314,7 +257,6 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
     return new THREE.CanvasTexture(canvas)
   }, [])
 
-  // color palette
   const colorPalette = [
     new THREE.Color('#e36658'), new THREE.Color('#a0caf2'), new THREE.Color('#f5e7a9'),
     new THREE.Color('#d793f8'), new THREE.Color('#82e063'), new THREE.Color('#ffa346'),
@@ -382,7 +324,6 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
 
   return (
     <group>
-      {/* Background Stars */}
       <points>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={bgStars.p.length / 3} array={bgStars.p} itemSize={3} />
@@ -391,7 +332,6 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      {/* Nebula Fog */}
       <points>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.core.p.length / 3} array={tiers.core.p} itemSize={3} />
@@ -400,7 +340,6 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={35.0} map={glowTexture} vertexColors transparent opacity={0.015} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      {/* Dust, Core, Giants */}
       <points onClick={handleClick(tiers.dust.i)}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.dust.p.length / 3} array={tiers.dust.p} itemSize={3} />
@@ -450,7 +389,7 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         )
       })}
 
-      {/* Labels */}
+      {/* Galaxy Labels */}
       {galaxyCenters.map((center, i) => {
         const c = colorPalette[center.id % colorPalette.length]
         return (
