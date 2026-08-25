@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Html } from '@react-three/drei'
 import * as THREE from 'three'
 
 export default function App() {
   const [universeData, setUniverseData] = useState([])
   const [selectedStar, setSelectedStar] = useState(null)
+  const [selectedCluster, setSelectedCluster] = useState(null)
   const [isBuilding, setIsBuilding] = useState(false)
   const [features, setFeatures] = useState({
     energy: true,
@@ -15,6 +16,41 @@ export default function App() {
     valence: true,
     popularity: true
   })
+  const [buildStage, setBuildStage] = useState(null)
+  const [isFading, setIsFading] = useState(false)
+  const [focusTarget, setFocusTarget] = useState(null)
+  const [isHomeView, setIsHomeView] = useState(true)
+  const [resetTick, setResetTick] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+
+  useEffect(() => {
+    if (searchQuery.length < 2) {
+      setSearchResults([])
+      return
+    }
+    const delay = setTimeout(() => {
+      fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(searchQuery)}`)
+        .then(res => res.json())
+        .then(data => setSearchResults(data))
+    }, 250) // 250ms delay prevents spamming the backend while typing
+    
+    return () => clearTimeout(delay)
+  }, [searchQuery])
+
+  const handleSearchSelect = (song) => {
+    setSearchQuery('')
+    setSearchResults([])
+    setSelectedCluster(null)
+    setFocusTarget(song)
+    setSelectedStar(song)
+    
+    fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=5`)
+      .then(res => res.json())
+      .then(neighborsData => {
+        setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
+      })
+  }
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/universe')
@@ -28,7 +64,11 @@ export default function App() {
 
   const handleRebuild = () => {
     setIsBuilding(true)
+    setBuildStage('ANALYZING 114,000 SONG RELATIONSHIPS...')
     const activeFeatures = Object.keys(features).filter(k => features[k])
+    
+    setTimeout(() => setBuildStage('CLUSTERING GALAXIES...'), 3500)
+    setTimeout(() => setBuildStage('PROJECTING INTO 2D SPACE...'), 7000)
     
     fetch('http://127.0.0.1:8000/rebuild', {
       method: 'POST',
@@ -37,152 +77,310 @@ export default function App() {
     })
       .then(res => res.json())
       .then(data => {
-        setUniverseData(data)
-        setSelectedStar(null)
-        setIsBuilding(false)
+        setBuildStage('UNIVERSE REBUILT')
+        
+        setTimeout(() => {
+          setUniverseData(data)
+          setSelectedStar(null)
+          setIsFading(true)
+          
+          setTimeout(() => {
+            setIsBuilding(false)
+            setBuildStage(null)
+            setIsFading(false)
+          }, 1000)
+        }, 800)
       })
   }
 
+  const handleStarClick = (index) => {
+    const clickedStar = universeData[index]
+    setSelectedStar(clickedStar)
+    setSelectedCluster(null)
+
+    fetch(`http://127.0.0.1:8000/neighbors/${clickedStar.track_id}?limit=5`)
+      .then(res => res.json())
+      .then(neighborsData => {
+        setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
+      })
+      .catch(err => console.error("Sniper fetch failed:", err))
+  }
+
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#050505', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ width: '100vw', height: '100vh', background: '#050505', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
+        <Canvas camera={{ position: [0, 12, 130], fov: 60 }}>
+          <OrbitControls 
+            makeDefault enableDamping dampingFactor={0.05} enableRotate={false}
+            mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
+          />
+          <CameraTracker setIsHomeView={setIsHomeView} />
+          <CameraRig focusTarget={focusTarget} resetTick={resetTick} /> 
+          
+          {universeData.length > 0 && (
+            <UniverseStars 
+              key={Date.now()} 
+              data={universeData} 
+              selectedStar={selectedStar}
+              onStarClick={handleStarClick} 
+              onGalaxyClick={(center, name) => {
+                setFocusTarget(center)
+                setSelectedStar(null)
+                
+                fetch(`http://127.0.0.1:8000/cluster/${center.id}`)
+                  .then(res => res.json())
+                  .then(data => setSelectedCluster({ ...data, name }))
+              }} 
+            />
+          )}
+        </Canvas>
+      </div>
 
-      {/* TOP HEADER & STATS BAR */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: '100px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '0 32px', zIndex: 10, color: 'white', fontFamily: 'sans-serif',
-        background: 'linear-gradient(180deg, rgba(5,5,5,0.9) 0%, rgba(5,5,5,0) 100%)',
-        pointerEvents: 'none'
-      }}>
+      {isBuilding && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999,
+          backgroundColor: 'rgba(5, 5, 5, 0.75)', backdropFilter: 'blur(6px)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', flexDirection: 'column', color: 'white',
+          pointerEvents: 'auto', userSelect: 'none', opacity: isFading ? 0 : 1, transition: 'opacity 1s ease-in-out',
+        }}>
+          <h2 style={{ color: '#00ffff', letterSpacing: '4px', margin: '0 0 16px 0', textShadow: '0 0 15px rgba(0,229,255,0.4)' }}>{buildStage}</h2>
+          <div style={{ width: '250px', height: '2px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+            <div style={{ width: '40%', height: '100%', background: '#00ffff', animation: 'slide 1.5s infinite linear' }} />
+          </div>
+          <style>{`@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }`}</style>
+        </div>
+      )}
+
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, pointerEvents: 'none', display: 'flex', flexDirection: 'column' }}>
         
-        {/* Top Left Placeholder */}
-        <div style={{ width: '300px' }}></div>
-
-        {/* Center Title & Stats */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', pointerEvents: 'auto' }}>
-          <div style={{ textAlign: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 32px', pointerEvents: 'auto', background: 'linear-gradient(180deg, rgba(5,5,5,0.95) 0%, rgba(5,5,5,0) 100%)' }}>
+          
+          {/* <Logo> */}
+          <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: '1.8rem', letterSpacing: '6px', color: '#fff', textShadow: '0 0 20px rgba(255,255,255,0.3)' }}>
               DATA UNIVERSE
             </h1>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#888' }}>Explore. Discover. Understand your data.</p>
           </div>
-          
-          <div style={{ display: 'flex', gap: '12px' }}>
-            {[ 
-              { val: universeData.length || 0, label: 'Songs' },
-              { val: '8', label: 'Clusters' },
-              { val: '6', label: 'Features' },
-              { val: '2', label: 'Dimensions' }
-            ].map((stat, i) => (
-              <div key={i} style={{ 
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
-                padding: '8px 24px', borderRadius: '8px', textAlign: 'center', minWidth: '80px'
-              }}>
-                <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#00ffff' }}>{stat.val}</div>
-                <div style={{ fontSize: '0.65rem', color: '#aaa', textTransform: 'uppercase', marginTop: '4px' }}>{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Top Right Placeholder */}
-        <div style={{ width: '300px' }}></div>
-      </div>
-      
-      {/* LEFT PANEL */}
-      <div style={{
-        position: 'absolute', top: '20px', left: '20px', background: 'rgba(15, 15, 20, 0.8)',
-        border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px', borderRadius: '12px',
-        color: 'white', fontFamily: 'sans-serif', zIndex: 10, backdropFilter: 'blur(12px)',
-        width: '280px', display: 'flex', flexDirection: 'column', gap: '20px'
-      }}>
-        <h3 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase' }}>Universe Controls</h3>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {Object.keys(features).map(feature => (
-            <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={features[feature]} 
-                onChange={() => toggleFeature(feature)}
-                style={{ accentColor: '#aa00ff', cursor: 'pointer' }} 
+          {/* Placeholder */}
+          <div style={{ flex: 1 }}></div>
+
+          {/* <SearchBar> */}
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ width: '100%', maxWidth: '350px', position: 'relative' }}>
+              <input
+                type="text" placeholder="Search a song or artist..." value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%', padding: '12px 20px', borderRadius: '30px', background: 'rgba(20, 20, 25, 0.6)',
+                  border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontFamily: 'sans-serif', outline: 'none',
+                  backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+                }}
               />
-              <span style={{ textTransform: 'capitalize' }}>{feature}</span>
-            </label>
-          ))}
-        </div>
-
-        <button 
-          onClick={handleRebuild}
-          disabled={isBuilding}
-          style={{ 
-            marginTop: '10px', padding: '12px', border: 'none', color: 'white', borderRadius: '6px', 
-            cursor: isBuilding ? 'wait' : 'pointer', fontWeight: 'bold',
-            background: isBuilding ? '#555' : 'linear-gradient(90deg, #aa00ff 0%, #5500ff 100%)', 
-          }}
-        >
-          {isBuilding ? 'Recalculating Space...' : 'Rebuild Universe'}
-        </button>
-      </div>
-
-      {/* RIGHT PANEL */}
-      {selectedStar && (
-        <div style={{
-          position: 'absolute', top: '20px', right: '20px', background: 'rgba(15, 15, 20, 0.8)',
-          border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px', borderRadius: '12px',
-          color: 'white', fontFamily: 'sans-serif', zIndex: 10, backdropFilter: 'blur(12px)', width: '320px',
-        }}>
-          <h4 style={{ margin: '0 0 4px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Selected Song</h4>
-          <h2 style={{ margin: '0 0 16px 0', fontSize: '1.4rem' }}>{selectedStar.track_name}</h2>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem' }}>
-            <p style={{ margin: 0 }}><strong>Artist:</strong> {selectedStar.artists}</p>
-            <p style={{ margin: 0 }}><strong>Super Genre:</strong> <span style={{ color: '#00ffff' }}>{selectedStar.super_genre}</span></p>
-            <p style={{ margin: 0, color: '#aaa' }}><strong>Sub-Genre:</strong> {selectedStar.track_genre}</p>
-          </div>
-
-          {selectedStar.neighbors && (
-            <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
-              <h4 style={{ margin: '0 0 12px 0', color: '#aa00ff', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                Nearest Neighbors
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {selectedStar.neighbors.map((neighbor, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', paddingRight: '10px', maxWidth: '200px' }}>
-                      <span style={{ fontWeight: 'bold', color: 'white', textOverflow: 'ellipsis', overflow: 'hidden' }}>{neighbor.name}</span>
-                      <span style={{ color: '#888', textOverflow: 'ellipsis', overflow: 'hidden' }}>{neighbor.artist}</span>
+              {searchResults.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '50px', left: 0, right: 0, background: 'rgba(15, 15, 20, 0.95)',
+                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', backdropFilter: 'blur(15px)', zIndex: 100
+                }}>
+                  {searchResults.map((song, i) => (
+                    <div key={i} onClick={() => handleSearchSelect(song)}
+                      style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: '4px' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {song.track_name}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#aaaaaa', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{song.artists}</span><span style={{ color: '#00ffff' }}>{song.super_genre}</span>
+                      </div>
                     </div>
-                    <span style={{ color: neighbor.match > 85 ? '#00ff00' : '#ffcc00', fontWeight: 'bold' }}>
-                      {neighbor.match}%
-                    </span>
-                  </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'hidden' }}>
+          
+          {/* <LeftSidebar> */}
+          <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{
+              background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
+              borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
+              display: 'flex', flexDirection: 'column', gap: '20px'
+            }}>
+              <h3 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.9rem', letterSpacing: '1px' }}>Universe Controls</h3>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {Object.keys(features).map(feature => (
+                  <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input type="checkbox" checked={features[feature]} onChange={() => toggleFeature(feature)} style={{ accentColor: '#aa00ff', cursor: 'pointer' }} />
+                    <span style={{ textTransform: 'capitalize' }}>{feature}</span>
+                  </label>
                 ))}
               </div>
+
+              {/* <RebuildButton> */}
+              <button onClick={handleRebuild} disabled={isBuilding} style={{
+                marginTop: '10px', padding: '12px', border: 'none', color: 'white', borderRadius: '6px',
+                cursor: isBuilding ? 'wait' : 'pointer', fontWeight: 'bold', letterSpacing: '1px',
+                background: isBuilding ? '#555' : 'linear-gradient(90deg, #aa00ff 0%, #5500ff 100%)', 
+              }}>
+                {isBuilding ? 'CALCULATING...' : 'Rebuild Universe'}
+              </button>
             </div>
-          )}
+          </div>
 
-          <button 
-            onClick={() => setSelectedStar(null)}
-            style={{ marginTop: '24px', padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '6px', cursor: 'pointer', width: '100%' }}
-          >
-            Close Details
-          </button>
+          {/* <MainUniverse> */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
+            
+            {/* <StatsBar> */}
+            <div style={{ display: 'flex', gap: '16px', pointerEvents: 'auto' }}>
+              {[ 
+                { val: universeData.length ? universeData.length.toLocaleString() : 0, label: 'Songs' },
+                { val: '8', label: 'Clusters' },
+                { val: Object.keys(features).filter(k => features[k]).length, label: 'Features' },
+                { val: '2', label: 'Dimensions' }
+              ].map((stat, i) => (
+                <div key={i} style={{ 
+                  background: 'rgba(20, 20, 25, 0.6)', border: '1px solid rgba(255,255,255,0.05)',
+                  borderTop: '1px solid rgba(255,255,255,0.15)', padding: '12px 32px', borderRadius: '12px',
+                  textAlign: 'center', minWidth: '90px', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+                }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#00e5ff', textShadow: '0 0 15px rgba(0,229,255,0.4)' }}>{stat.val}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#888', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '6px' }}>{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* <UniverseControls> */}
+            <div style={{ paddingBottom: '20px', pointerEvents: 'auto' }}>
+              {!isHomeView && !isBuilding && (
+                <button onClick={() => { setFocusTarget(null); setResetTick(prev => prev + 1); }}
+                  style={{
+                    background: 'rgba(15, 15, 20, 0.8)', border: '1px solid #00ffff', color: '#00ffff',
+                    padding: '12px 24px', borderRadius: '30px', cursor: 'pointer', fontFamily: 'sans-serif',
+                    textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', backdropFilter: 'blur(10px)',
+                    boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)'
+                  }}>
+                  Reset Universe View
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* <RightSidebar> */}
+          <div style={{ width: '320px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto' }}>
+            
+            {/* SONG DETAILS */}
+            {selectedStar && (
+              <>
+                {/* <SelectedSong> */}
+                <div style={{
+                  background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
+                  borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)'
+                }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Selected Song</h4>
+                  <h2 style={{ margin: '0 0 16px 0', fontSize: '1.4rem', lineHeight: '1.2' }}>{selectedStar.track_name}</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
+                    <p style={{ margin: 0 }}><strong>Artist:</strong> <span style={{ color: '#ccc' }}>{selectedStar.artists}</span></p>
+                    <p style={{ margin: 0 }}><strong>Super Genre:</strong> <span style={{ color: '#00ffff' }}>{selectedStar.super_genre}</span></p>
+                    <p style={{ margin: 0 }}><strong>Sub-Genre:</strong> <span style={{ color: '#888' }}>{selectedStar.track_genre}</span></p>
+                  </div>
+                  <button onClick={() => setSelectedStar(null)} style={{ marginTop: '24px', padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '6px', cursor: 'pointer', width: '100%' }}>
+                    Close Details
+                  </button>
+                </div>
+
+                {/* <NearestNeighbors> */}
+                {selectedStar.neighbors && (
+                  <div style={{
+                    background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
+                    borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
+                    flex: 1, overflowY: 'auto'
+                  }}>
+                    <h4 style={{ margin: '0 0 16px 0', color: '#aa00ff', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Nearest Neighbors</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {selectedStar.neighbors.map((neighbor, idx) => (
+                        <div key={idx} onClick={() => handleSearchSelect(neighbor)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingRight: '10px' }}>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'white', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{neighbor.track_name}</span>
+                            <span style={{ fontSize: '0.75rem', color: '#888', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{neighbor.artists}</span>
+                          </div>
+                          <span style={{ fontSize: '0.85rem', color: neighbor.match > 85 ? '#00ff00' : '#ffcc00', fontWeight: 'bold' }}>{neighbor.match}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* CLUSTER INSIGHTS */}
+            {!selectedStar && selectedCluster && (
+              <div style={{
+                background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
+                borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
+                display: 'flex', flexDirection: 'column', gap: '20px'
+              }}>
+                <div>
+                  <h4 style={{ margin: '0 0 4px 0', color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Cluster Insights</h4>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem' }}>{selectedCluster.name}</h2>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#00ffff' }}>{selectedCluster.count.toLocaleString()}</span>
+                  <span style={{ color: '#888', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Songs</span>
+                </div>
+
+                <div>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#fff', fontSize: '0.8rem', textTransform: 'uppercase' }}>Dominant Sub-Genres</h4>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {selectedCluster.top_genres.map((g, i) => (
+                      <span key={i} style={{ background: 'rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '20px', fontSize: '0.75rem', color: '#ccc' }}>
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 style={{ margin: '0 0 16px 0', color: '#fff', fontSize: '0.8rem', textTransform: 'uppercase' }}>Average Characteristics</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {Object.entries(selectedCluster.stats).map(([key, val]) => {
+                      const widthPct = key === 'loudness' ? Math.max(0, (val + 60) / 60 * 100) : (key === 'popularity' ? val : val * 100);
+                      const displayVal = key === 'loudness' ? `${val.toFixed(1)} dB` : (key === 'popularity' ? val.toFixed(0) : val.toFixed(2));
+                      
+                      return (
+                        <div key={key}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '6px', textTransform: 'capitalize', color: '#aaa' }}>
+                            <span>{key}</span>
+                            <span style={{ color: '#fff', fontWeight: 'bold' }}>{displayVal}</span>
+                          </div>
+                          <div style={{ width: '100%', background: 'rgba(255,255,255,0.05)', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ 
+                              width: `${widthPct}%`, 
+                              background: 'linear-gradient(90deg, #aa00ff, #00ffff)', height: '100%', borderRadius: '3px'
+                            }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                
+                <button onClick={() => setSelectedCluster(null)} style={{ marginTop: '10px', padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '6px', cursor: 'pointer', width: '100%' }}>
+                  Close Insights
+                </button>
+              </div>
+            )}
+          </div>
+          
         </div>
-      )}
-
-      {/* 3D CANVAS */}
-      <Canvas camera={{ position: [0, 0, 80], fov: 60 }}>
-        <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
-        {universeData.length > 0 && (
-          <UniverseStars 
-            key={Date.now()} 
-            data={universeData} 
-            selectedStar={selectedStar}
-            onStarClick={(index) => setSelectedStar(universeData[index])} 
-          />
-        )}
-      </Canvas>
+      </div>
     </div>
   )
 }
@@ -203,7 +401,6 @@ function TargetRing({ x, y, radius, color, speed }) {
     </mesh>
   )
 }
-
 function ConnectionLaser({ start, end, match, color }) {
   const particleRef = useRef()
   const intensity = Math.max(0, (match - 85) / 10) 
@@ -239,9 +436,57 @@ function ConnectionLaser({ start, end, match, color }) {
     </group>
   )
 }
+function CameraTracker({ setIsHomeView }) {
+  const { camera } = useThree()
+  const homePos = useMemo(() => new THREE.Vector3(0, 12, 130), [])
+  
+  useFrame(() => {
+    // If the camera moves more than 2 units away from home, trigger the button
+    const isHome = camera.position.distanceTo(homePos) < 2
+    setIsHomeView(isHome) 
+  })
+  return null
+}
+
+function CameraRig({ focusTarget, resetTick }) {
+  const { camera, controls } = useThree()
+  const [isFlying, setIsFlying] = useState(false)
+  const targetPos = useMemo(() => new THREE.Vector3(), [])
+  const targetLook = useMemo(() => new THREE.Vector3(), [])
+
+  useEffect(() => {
+    if (focusTarget) {
+      if (focusTarget.track_name) {
+        targetPos.set(focusTarget.x, focusTarget.y - 2, 10)
+        targetLook.set(focusTarget.x, focusTarget.y, 0)
+      } else {
+        targetPos.set(focusTarget.x, focusTarget.y - 12, 45)
+        targetLook.set(focusTarget.x, focusTarget.y, 0)
+      }
+    } else {
+      targetPos.set(0, 12, 130)
+      targetLook.set(0, 12, 0)
+    }
+    setIsFlying(true)
+  }, [focusTarget, resetTick, targetPos, targetLook])
+
+  useFrame(() => {
+    if (controls && isFlying) {
+      camera.position.lerp(targetPos, 0.05)
+      controls.target.lerp(targetLook, 0.05)
+      
+      if (camera.position.distanceTo(targetPos) < 0.5) {
+        setIsFlying(false)
+      }
+      controls.update()
+    }
+  })
+  
+  return null
+}
 
 // --- THE STAR RENDERING ENGINE ---
-function UniverseStars({ data, onStarClick, selectedStar }) {
+function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 128
@@ -276,7 +521,8 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
       centers[star.color_id].y += star.y
       centers[star.color_id].count += 1
     })
-    return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id}))
+    
+    return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id, count: c.count }))
   }, [data])
 
   const bgStars = useMemo(() => {
@@ -322,8 +568,32 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
     if (e.index !== undefined) onStarClick(tierIndices[e.index])
   }
 
+  const [hoveredStar, setHoveredStar] = useState(null)
+  const hoverTimeout = useRef(null)
+  const handlePointerOver = (tierIndices) => (e) => {
+    e.stopPropagation()
+    document.body.style.cursor = 'crosshair'
+    
+    if (e.index !== undefined) {
+      const star = data[tierIndices[e.index]]
+      clearTimeout(hoverTimeout.current)
+      
+      // Wait 150ms
+      hoverTimeout.current = setTimeout(() => {
+        setHoveredStar(star)
+      }, 150) 
+    }
+  }
+
+  const handlePointerOut = () => {
+    document.body.style.cursor = 'default'
+    clearTimeout(hoverTimeout.current) 
+    setHoveredStar(null)
+  }
+
   return (
     <group>
+      {/* Background Stars */}
       <points>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={bgStars.p.length / 3} array={bgStars.p} itemSize={3} />
@@ -332,93 +602,149 @@ function UniverseStars({ data, onStarClick, selectedStar }) {
         <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      <points>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={tiers.core.p.length / 3} array={tiers.core.p} itemSize={3} />
-          <bufferAttribute attach="attributes-color" count={tiers.core.c.length / 3} array={tiers.core.c} itemSize={3} />
-        </bufferGeometry>
-        <pointsMaterial size={35.0} map={glowTexture} vertexColors transparent opacity={0.015} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </points>
-
+      {/* Dust Layer */}
       <points onClick={handleClick(tiers.dust.i)}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.dust.p.length / 3} array={tiers.dust.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.dust.c.length / 3} array={tiers.dust.c} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={1.8} map={glowTexture} vertexColors transparent opacity={0.25} blending={THREE.AdditiveBlending} depthWrite={false} />
+        {/* Shrunk to 0.6 size, and opacity dropped to 3% */}
+        <pointsMaterial size={0.6} map={glowTexture} vertexColors transparent opacity={0.03} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      <points onClick={handleClick(tiers.core.i)}>
+      {/* Core Layer */}
+      <points 
+        onClick={handleClick(tiers.core.i)}
+        onPointerOver={handlePointerOver(tiers.core.i)}
+        onPointerOut={handlePointerOut}
+      >
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.core.p.length / 3} array={tiers.core.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.core.c.length / 3} array={tiers.core.c} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={3.5} map={glowTexture} vertexColors transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.08} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      <points onClick={handleClick(tiers.giants.i)} onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'crosshair'; }} onPointerOut={() => { document.body.style.cursor = 'default'; }}>
+      {/* Giants Layer */}
+      <points 
+        onClick={handleClick(tiers.giants.i)}
+        onPointerOver={handlePointerOver(tiers.giants.i)}
+        onPointerOut={handlePointerOut}
+      >
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={tiers.giants.p.length / 3} array={tiers.giants.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.giants.c.length / 3} array={tiers.giants.c} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={7.0} map={glowTexture} vertexColors transparent opacity={1.0} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <pointsMaterial size={2.5} map={glowTexture} vertexColors transparent opacity={0.4} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
-      {/* Target Lock */}
+      {/* TARGET RING & NEIGHBOR LASERS */}
       {selectedStar && (
-        <group>
-          <mesh position={[selectedStar.x, selectedStar.y, 2]}>
-            <planeGeometry args={[14, 14]} />
-            <meshBasicMaterial map={glowTexture} color="#ffffff" transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} />
-          </mesh>
-          <TargetRing x={selectedStar.x} y={selectedStar.y} radius={2.0} color="#ffffff" speed={3} />
+        <group position={[0, 0, 1]}> {/* Pulls it forward so lasers don't clip through stars */}
+          
+          {/* Target Ring */}
+          <TargetRing 
+            x={selectedStar.x} 
+            y={selectedStar.y} 
+            radius={0.8} 
+            color={colorPalette[selectedStar.color_id % colorPalette.length].getStyle()} 
+            speed={0.02} 
+          />
+          
+          {/* Lasers */}
+          {selectedStar.neighbors && selectedStar.neighbors.map((neighbor, idx) => (
+            <ConnectionLaser 
+              key={`conn-${idx}`}
+              start={selectedStar}
+              end={neighbor}
+              match={neighbor.match}
+              color={colorPalette[neighbor.color_id % colorPalette.length].getStyle()}
+            />
+          ))}
         </group>
       )}
-
-      {/* Connection Lasers */}
-      {selectedStar && selectedStar.neighbors && selectedStar.neighbors.map((neighbor, idx) => {
-        const neighborColor = colorPalette[neighbor.color_id % colorPalette.length];
-        return (
-          <ConnectionLaser 
-            key={`conn-${idx}`} 
-            start={selectedStar} 
-            end={neighbor} 
-            match={neighbor.match} 
-            color={neighborColor} 
-          />
-        )
-      })}
 
       {/* Galaxy Labels */}
       {galaxyCenters.map((center, i) => {
         const c = colorPalette[center.id % colorPalette.length]
         return (
           <Html key={`label-${i}`} position={[center.x, center.y + 8, 0]} center zIndexRange={[100, 0]}>
-            <div style={{
-              background: 'rgba(15, 15, 20, 0.7)',
-              border: `1px solid ${c.getStyle()}`,
-              padding: '6px 12px',
-              borderRadius: '6px',
-              color: 'white',
-              fontFamily: 'sans-serif',
-              fontSize: '0.8rem',
-              backdropFilter: 'blur(8px)',
-              pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              boxShadow: `0 0 10px ${c.getStyle()}40`
-            }}>
+            <div 
+              onClick={(e) => {
+                e.stopPropagation() 
+                onGalaxyClick(center, GALAXY_NAMES[center.id])
+              }}
+              style={{
+                background: 'rgba(15, 15, 20, 0.7)',
+                border: `1px solid ${c.getStyle()}`,
+                padding: '6px 12px',
+                borderRadius: '6px',
+                color: 'white',
+                fontFamily: 'sans-serif',
+                fontSize: '0.8rem',
+                backdropFilter: 'blur(8px)',
+                pointerEvents: 'auto',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: `0 0 10px ${c.getStyle()}40`
+              }}
+            >
               <span style={{ color: c.getStyle(), fontSize: '1rem' }}>✦</span>
               <strong>{GALAXY_NAMES[center.id]}</strong>
               <span style={{ color: '#aaa', fontSize: '0.7rem', marginLeft: '4px' }}>
-                {Math.round(data.length / 8)} songs
+                {center.count.toLocaleString()} songs
               </span>
             </div>
           </Html>
         )
       })}
+
+      {hoveredStar && (() => {
+        // Grab the exact galaxy color for this specific song
+        const glowColor = colorPalette[hoveredStar.color_id % colorPalette.length].getStyle()
+        
+        return (
+          <group position={[hoveredStar.x, hoveredStar.y, 2]}>
+            {/* The Dynamic Galaxy-Colored Ring */}
+            <mesh>
+              <ringGeometry args={[1.0, 1.4, 32]} />
+              <meshBasicMaterial color={glowColor} transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
+            </mesh>
+            
+            <Html zIndexRange={[100, 0]}>
+              <div style={{
+                background: 'rgba(10, 10, 15, 0.9)',
+                border: `1px solid ${glowColor}`,
+                padding: '12px 16px',
+                borderRadius: '8px',
+                color: 'white',
+                fontFamily: 'sans-serif',
+                whiteSpace: 'nowrap',
+                transform: 'translate3d(20px, -20px, 0)',
+                pointerEvents: 'none',
+                backdropFilter: 'blur(8px)',
+                boxShadow: `0 4px 20px ${glowColor}40`
+              }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                  {hoveredStar.track_name}
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#ccc', marginTop: '4px' }}>
+                  {hoveredStar.artists}
+                </div>
+                <div style={{ 
+                  fontSize: '0.75rem', color: glowColor, marginTop: '10px', 
+                  textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '6px' 
+                }}>
+                  <span style={{ fontSize: '1rem' }}>✦</span> {hoveredStar.super_genre}
+                </div>
+              </div>
+            </Html>
+          </group>
+        )
+      })()}
     </group>
   )
 }
