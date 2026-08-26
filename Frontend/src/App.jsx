@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Html } from '@react-three/drei'
+import { OrbitControls, Html, Stars } from '@react-three/drei'
 import * as THREE from 'three'
 
 export default function App() {
@@ -63,25 +63,30 @@ export default function App() {
   }
 
   const handleRebuild = () => {
+    setSelectedStar(null)
+    setSelectedCluster(null)
+    setFocusTarget(null)
     setIsBuilding(true)
     setBuildStage('ANALYZING 114,000 SONG RELATIONSHIPS...')
-    const activeFeatures = Object.keys(features).filter(k => features[k])
     
-    setTimeout(() => setBuildStage('CLUSTERING GALAXIES...'), 3500)
-    setTimeout(() => setBuildStage('PROJECTING INTO 2D SPACE...'), 7000)
+    const activeFeatures = Object.keys(features).filter(k => features[k])
     
     fetch('http://127.0.0.1:8000/rebuild', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ features: activeFeatures })
     })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("Backend connection failed")
+        return res.json()
+      })
       .then(data => {
+        if (data.error) throw new Error(data.error)
+        
         setBuildStage('UNIVERSE REBUILT')
         
         setTimeout(() => {
           setUniverseData(data)
-          setSelectedStar(null)
           setIsFading(true)
           
           setTimeout(() => {
@@ -90,6 +95,14 @@ export default function App() {
             setIsFading(false)
           }, 1000)
         }, 800)
+      })
+      .catch(err => {
+        console.error(err)
+        setBuildStage('ERROR: BACKEND FAILED')
+        setTimeout(() => {
+          setIsBuilding(false)
+          setBuildStage(null)
+        }, 3000)
       })
   }
 
@@ -111,8 +124,20 @@ export default function App() {
       
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
         <Canvas camera={{ position: [0, 12, 130], fov: 60 }}>
+          <SpaceBackground />
+          <Stars 
+            radius={300}
+            depth={200}
+            count={4000}      
+            factor={6}        
+            saturation={0.5}  
+            fade={true}       
+            speed={1.5}       
+          />
           <OrbitControls 
             makeDefault enableDamping dampingFactor={0.05} enableRotate={false}
+            minDistance={20} 
+            maxDistance={400}
             mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
           />
           <CameraTracker setIsHomeView={setIsHomeView} />
@@ -273,7 +298,7 @@ export default function App() {
           </div>
 
           {/* <RightSidebar> */}
-          <div style={{ width: '320px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto' }}>
+          <div style={{ width: '380px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto' }}>
             
             {/* SONG DETAILS */}
             {selectedStar && (
@@ -283,16 +308,47 @@ export default function App() {
                   background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
                   borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)'
                 }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Selected Song</h4>
-                  <h2 style={{ margin: '0 0 16px 0', fontSize: '1.4rem', lineHeight: '1.2' }}>{selectedStar.track_name}</h2>
+                  <h4 style={{ margin: '0 0 16px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Selected Song</h4>
+                
+                  <iframe 
+                    src={`https://open.spotify.com/embed/track/${selectedStar.track_id}?utm_source=generator&theme=0`} 
+                    width="100%" 
+                    height="152" 
+                    frameBorder="0" 
+                    allowFullScreen="" 
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+                    loading="lazy"
+                    style={{ borderRadius: '12px', marginBottom: '16px', background: '#282828' }}
+                  ></iframe>
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
-                    <p style={{ margin: 0 }}><strong>Artist:</strong> <span style={{ color: '#ccc' }}>{selectedStar.artists}</span></p>
                     <p style={{ margin: 0 }}><strong>Super Genre:</strong> <span style={{ color: '#00ffff' }}>{selectedStar.super_genre}</span></p>
                     <p style={{ margin: 0 }}><strong>Sub-Genre:</strong> <span style={{ color: '#888' }}>{selectedStar.track_genre}</span></p>
                   </div>
-                  <button onClick={() => setSelectedStar(null)} style={{ marginTop: '24px', padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '6px', cursor: 'pointer', width: '100%' }}>
-                    Close Details
-                  </button>
+                  
+                  {/* BUTTONS */}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
+                    {/* Lyrics Button */}
+                    <button 
+                      onClick={() => window.open(`https://genius.com/search?q=${encodeURIComponent(selectedStar.artists + ' ' + selectedStar.track_name)}`, '_blank')}
+                      style={{ 
+                        flex: 1, padding: '8px', background: '#ffff64', border: 'none', color: 'black', 
+                        borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' 
+                      }}
+                    >
+                      📖 Lyrics
+                    </button>
+                    
+                    <button 
+                      onClick={() => setSelectedStar(null)} 
+                      style={{ 
+                        flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', 
+                        color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' 
+                      }}
+                    >
+                      Close Details
+                    </button>
+                  </div>
                 </div>
 
                 {/* <NearestNeighbors> */}
@@ -386,6 +442,39 @@ export default function App() {
 }
 
 // --- ANIMATION COMPONENTS ---
+function SpaceBackground() {
+  const { scene, size } = useThree()
+  const [bgTexture, setBgTexture] = useState(null)
+  
+  useEffect(() => {
+    new THREE.TextureLoader().load('/deep-space.jpg', (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace 
+      setBgTexture(texture)
+      scene.background = texture
+    })
+  }, [scene])
+  
+  useEffect(() => {
+    if (!bgTexture) return
+    const canvasAspect = size.width / size.height
+    const imageAspect = bgTexture.image.width / bgTexture.image.height
+    if (canvasAspect > imageAspect) {
+      bgTexture.repeat.set(1, imageAspect / canvasAspect)
+      bgTexture.offset.set(0, (1 - bgTexture.repeat.y) / 2)
+    } else {
+      bgTexture.repeat.set(canvasAspect / imageAspect, 1)
+      bgTexture.offset.set((1 - bgTexture.repeat.x) / 2, 0)
+    }
+  }, [bgTexture, size]) 
+  
+  return (
+    <mesh position={[0, 0, -200]}>
+      <planeGeometry args={[10000, 10000]} />
+      <meshBasicMaterial color="#000000" transparent opacity={0.7} depthWrite={false} />
+    </mesh>
+  )
+}
+
 function TargetRing({ x, y, radius, color, speed }) {
   const ringRef = useRef()
   
@@ -457,14 +546,14 @@ function CameraRig({ focusTarget, resetTick }) {
   useEffect(() => {
     if (focusTarget) {
       if (focusTarget.track_name) {
-        targetPos.set(focusTarget.x, focusTarget.y - 2, 10)
+        targetPos.set(focusTarget.x, focusTarget.y - 2, 25)
         targetLook.set(focusTarget.x, focusTarget.y, 0)
       } else {
         targetPos.set(focusTarget.x, focusTarget.y - 12, 45)
         targetLook.set(focusTarget.x, focusTarget.y, 0)
       }
     } else {
-      targetPos.set(0, 12, 130)
+      targetPos.set(0, 12, 250)
       targetLook.set(0, 12, 0)
     }
     setIsFlying(true)
@@ -502,6 +591,20 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
     return new THREE.CanvasTexture(canvas)
   }, [])
 
+  const cloudTexture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 256
+    const context = canvas.getContext('2d')
+    const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 128)
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)')
+    gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.3)')
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+    context.fillStyle = gradient
+    context.fillRect(0, 0, 256, 256)
+    return new THREE.CanvasTexture(canvas)
+  }, [])
+
   const colorPalette = [
     new THREE.Color('#e36658'), new THREE.Color('#a0caf2'), new THREE.Color('#f5e7a9'),
     new THREE.Color('#d793f8'), new THREE.Color('#82e063'), new THREE.Color('#ffa346'),
@@ -524,19 +627,6 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
     
     return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id, count: c.count }))
   }, [data])
-
-  const bgStars = useMemo(() => {
-    const pos = [], col = []
-    for(let i = 0; i < 1500; i++) {
-      const r = 60 + Math.random() * 120 
-      const theta = Math.random() * Math.PI * 2
-      pos.push(r * Math.cos(theta), r * Math.sin(theta), -15 - Math.random() * 40)
-      
-      const c = new THREE.Color().setHSL(0.6 + Math.random() * 0.2, 0.5, 0.15 + Math.random() * 0.15)
-      col.push(c.r, c.g, c.b)
-    }
-    return { p: new Float32Array(pos), c: new Float32Array(col) }
-  }, [])
 
   const tiers = useMemo(() => {
     const dust = { pos: [], col: [], idx: [] }
@@ -593,14 +683,21 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
 
   return (
     <group>
-      {/* Background Stars */}
-      <points>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={bgStars.p.length / 3} array={bgStars.p} itemSize={3} />
-          <bufferAttribute attach="attributes-color" count={bgStars.c.length / 3} array={bgStars.c} itemSize={3} />
-        </bufferGeometry>
-        <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </points>
+      {galaxyCenters.map((center, i) => {
+        const c = colorPalette[center.id % colorPalette.length]
+        return (
+          <sprite key={`cloud-${i}`} position={[center.x, center.y, -15]} scale={[140, 140, 1]}>
+            <spriteMaterial 
+              map={cloudTexture} 
+              color={c} 
+              transparent 
+              opacity={0.12}
+              blending={THREE.AdditiveBlending} 
+              depthWrite={false} 
+            />
+          </sprite>
+        )
+      })}
 
       {/* Dust Layer */}
       <points onClick={handleClick(tiers.dust.i)}>
@@ -608,8 +705,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
           <bufferAttribute attach="attributes-position" count={tiers.dust.p.length / 3} array={tiers.dust.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.dust.c.length / 3} array={tiers.dust.c} itemSize={3} />
         </bufferGeometry>
-        {/* Shrunk to 0.6 size, and opacity dropped to 3% */}
-        <pointsMaterial size={0.6} map={glowTexture} vertexColors transparent opacity={0.03} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <pointsMaterial size={2.5} map={glowTexture} vertexColors transparent opacity={0.5} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
       {/* Core Layer */}
@@ -622,7 +718,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
           <bufferAttribute attach="attributes-position" count={tiers.core.p.length / 3} array={tiers.core.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.core.c.length / 3} array={tiers.core.c} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={1.2} map={glowTexture} vertexColors transparent opacity={0.08} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <pointsMaterial size={4.0} map={glowTexture} vertexColors transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
 
       {/* Giants Layer */}
@@ -635,12 +731,11 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
           <bufferAttribute attach="attributes-position" count={tiers.giants.p.length / 3} array={tiers.giants.p} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={tiers.giants.c.length / 3} array={tiers.giants.c} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={2.5} map={glowTexture} vertexColors transparent opacity={0.4} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <pointsMaterial size={6.0} map={glowTexture} vertexColors transparent opacity={1.0} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
-
       {/* TARGET RING & NEIGHBOR LASERS */}
       {selectedStar && (
-        <group position={[0, 0, 1]}> {/* Pulls it forward so lasers don't clip through stars */}
+        <group position={[0, 0, 1]}>
           
           {/* Target Ring */}
           <TargetRing 

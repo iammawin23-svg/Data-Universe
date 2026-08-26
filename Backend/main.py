@@ -1,9 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from pydantic import BaseModel
 from typing import List
-from engine import generate_universe, get_song_neighbors, search_songs, get_cluster_insights, rebuild_universe
+from engine import generate_universe, get_song_neighbors, search_songs, get_cluster_insights
 
 app = FastAPI(title="Data Universe API")
 
@@ -18,16 +17,12 @@ app.add_middleware(
 class RebuildRequest(BaseModel):
     features: List[str]
 
-@app.post("/rebuild")
-def rebuild(req: RebuildRequest):
-    return rebuild_universe(req.features)
-
 @app.get("/universe")
 def get_universe():
     return generate_universe()
 
 @app.post("/rebuild")
-def rebuild_universe(req: RebuildRequest):
+def rebuild(req: RebuildRequest):
     return generate_universe(req.features)
 
 @app.get("/neighbors/{track_id}")

@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from fastapi.responses import Response
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cluster import MiniBatchKMeans
@@ -24,21 +25,18 @@ for i, (super_name, sub_genres) in enumerate(SUPER_GENRES.items()):
     for sub in sub_genres:
         genre_to_super[sub] = {"name": super_name, "id": i}
 
-galaxy_anchors = {}
-radius = 45.0 
-for i in range(8):
-    angle = (i / 8.0) * 2.0 * math.pi
-    galaxy_anchors[i] = {"x": math.cos(angle) * radius, "y": math.sin(angle) * radius}
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.abspath(os.path.join(BASE_DIR, "../Data/Raw/spotify_data.csv"))
 
-DATA_PATH = "../Data/Raw/spotify_data.csv"
 if os.path.exists(DATA_PATH):
-    print("Booting up... Loading full 114K dataset into memory!")
+    print(f"Booting up... Loading full 114K dataset from {DATA_PATH}!")
     raw_df = pd.read_csv(DATA_PATH).dropna().reset_index(drop=True)
     
     raw_df['super_genre'] = raw_df['track_genre'].apply(lambda x: genre_to_super.get(x, {"name": "Other", "id": 7})['name'])
     raw_df['color_id'] = raw_df['track_genre'].apply(lambda x: genre_to_super.get(x, {"name": "Other", "id": 7})['id'])
     print(f"Dataset loaded successfully with {len(raw_df)} songs.")
 else:
+    print(f"CRITICAL ERROR: Could not find dataset at {DATA_PATH}")
     raw_df = None
 
 global_state = {
@@ -49,7 +47,7 @@ global_state = {
 
 def generate_universe(custom_features=None):
     if raw_df is None:
-        return {"error": "Dataset not found"}
+        return {"error": "Dataset not found. Check terminal logs."}
     
     df = raw_df.copy()
     
@@ -62,37 +60,50 @@ def generate_universe(custom_features=None):
 
     X_raw = df[valid_features]
 
-    print("\n--- REBUILDING MASSIVE UNIVERSE ---")
+    print(f"\n--- BOOTING UNIVERSE WITH FEATURES: {valid_features} ---")
 
     start = time.time()
     X_scaled = StandardScaler().fit_transform(X_raw)
     print(f"Scaling: {time.time() - start:.4f} seconds")
 
     start = time.time()
-    df['cluster'] = MiniBatchKMeans(n_clusters=8, random_state=42, batch_size=2048, n_init='auto').fit_predict(X_scaled)
+    kmeans = MiniBatchKMeans(n_clusters=8, random_state=42, batch_size=2048, n_init='auto')
+    df['color_id'] = kmeans.fit_predict(X_scaled)
     print(f"Clustering: {time.time() - start:.4f} seconds")
 
     start = time.time()
     if len(valid_features) == 1:
-        pca_coords = np.zeros((len(df), 2))
-        pca_coords[:, 0] = X_scaled[:, 0]
+        local_coords = np.zeros((len(df), 2))
+        local_coords[:, 0] = X_scaled[:, 0]
     else:
-        pca_coords = PCA(n_components=2).fit_transform(X_scaled)
+        pca = PCA(n_components=2, random_state=42)
+        local_coords = pca.fit_transform(X_scaled)
     print(f"PCA: {time.time() - start:.4f} seconds")
 
     start = time.time()
-    final_x = []
-    final_y = []
-    for i in range(len(df)):
-        c_id = df.iloc[i]['color_id']
-        final_x.append((pca_coords[i, 0] * 3.0) + galaxy_anchors[c_id]["x"])
-        final_y.append((pca_coords[i, 1] * 3.0) + galaxy_anchors[c_id]["y"])
-    df['x'] = final_x
-    df['y'] = final_y
+    np.random.seed(42)
+    
+    cluster_radii = np.random.uniform(60, 120, size=8)
+    cluster_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False) + np.random.uniform(-0.3, 0.3, size=8)
+    
+    macro_x = cluster_radii[df['color_id']] * np.cos(cluster_angles[df['color_id']])
+    macro_y = cluster_radii[df['color_id']] * np.sin(cluster_angles[df['color_id']])
+    
+    lx = local_coords[:, 0] * 28 
+    ly = local_coords[:, 1] * 8  
+    
+    rot_angles = np.random.uniform(0, 2 * np.pi, size=8)
+    point_rot = rot_angles[df['color_id']]
+    
+    final_local_x = lx * np.cos(point_rot) - ly * np.sin(point_rot)
+    final_local_y = lx * np.sin(point_rot) + ly * np.cos(point_rot)
+    
+    df['x'] = macro_x + final_local_x
+    df['y'] = macro_y + final_local_y
     print(f"Coordinate Math: {time.time() - start:.4f} seconds")
 
     start = time.time()
-    nn = NearestNeighbors(metric='euclidean')
+    nn = NearestNeighbors(metric='euclidean', algorithm='kd_tree')
     nn.fit(X_scaled)
     print(f"Trained Search Tree: {time.time() - start:.4f} seconds")
 
@@ -101,11 +112,16 @@ def generate_universe(custom_features=None):
     global_state["nn_model"] = nn
 
     start = time.time()
-    result = df[['track_id', 'track_name', 'artists', 'track_genre', 'super_genre', 'color_id', 'cluster', 'x', 'y']].to_dict(orient='records')
+    df['color_id'] = df['color_id'].astype(int)
+    df['x'] = df['x'].astype(float)
+    df['y'] = df['y'].astype(float)
+    
+    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y']].to_json(orient='records')
     print(f"JSON Conversion: {time.time() - start:.4f} seconds")
     print("-----------------------------------\n")
 
-    return result
+    return Response(content=json_str, media_type="application/json")
+
 
 def get_song_neighbors(track_id, limit=5):
     df = global_state["df"]
@@ -162,6 +178,7 @@ def get_song_neighbors(track_id, limit=5):
             
     return neighbors_list
 
+
 def search_songs(query: str, limit: int = 8):
     df = global_state["df"]
     if df is None:
@@ -183,6 +200,7 @@ def search_songs(query: str, limit: int = 8):
         "x": float(row['x']),
         "y": float(row['y'])
     } for _, row in results.iterrows()]
+
 
 def get_cluster_insights(cluster_id: int):
     df = global_state["df"]
@@ -208,42 +226,3 @@ def get_cluster_insights(cluster_id: int):
         "stats": stats,
         "top_genres": top_genres
     }
-
-def rebuild_universe(active_features: list):
-    df = global_state["df"]
-    if df is None:
-        return {"error": "No data loaded."}
-        
-    if not active_features:
-        active_features = ['energy', 'danceability', 'tempo', 'loudness', 'valence', 'popularity']
-
-    print(f"Rebuilding Universe using features: {active_features}")
-
-    X = df[active_features].values
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    kmeans = MiniBatchKMeans(n_clusters=8, random_state=42, batch_size=1024)
-    df['color_id'] = kmeans.fit_predict(X_scaled)
-
-    pca = PCA(n_components=2, random_state=42)
-    coords = pca.fit_transform(X_scaled)
-    df['x'] = coords[:, 0]
-    df['y'] = coords[:, 1]
-
-    nn = NearestNeighbors(metric='euclidean', algorithm='kd_tree')
-    nn.fit(X_scaled)
-
-    global_state["X_scaled"] = X_scaled
-    global_state["nn_model"] = nn
-
-    return [{
-        "track_id": str(row['track_id']),
-        "track_name": str(row['track_name']),
-        "artists": str(row['artists']),
-        "super_genre": str(row['super_genre']),
-        "track_genre": str(row['track_genre']),
-        "color_id": int(row['color_id']),
-        "x": float(row['x']),
-        "y": float(row['y'])
-    } for _, row in df.iterrows()]
