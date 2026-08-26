@@ -8,6 +8,7 @@ export default function App() {
   const [selectedStar, setSelectedStar] = useState(null)
   const [selectedCluster, setSelectedCluster] = useState(null)
   const [isBuilding, setIsBuilding] = useState(false)
+  const [showAllNeighbors, setShowAllNeighbors] = useState(false)
   const [features, setFeatures] = useState({
     energy: true,
     danceability: true,
@@ -42,10 +43,10 @@ export default function App() {
     setSearchQuery('')
     setSearchResults([])
     setSelectedCluster(null)
-    setFocusTarget(song)
     setSelectedStar(song)
+    setShowAllNeighbors(false)
     
-    fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=5`)
+    fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=50`)
       .then(res => res.json())
       .then(neighborsData => {
         setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
@@ -110,8 +111,9 @@ export default function App() {
     const clickedStar = universeData[index]
     setSelectedStar(clickedStar)
     setSelectedCluster(null)
+    setShowAllNeighbors(false)
 
-    fetch(`http://127.0.0.1:8000/neighbors/${clickedStar.track_id}?limit=5`)
+    fetch(`http://127.0.0.1:8000/neighbors/${clickedStar.track_id}?limit=50`)
       .then(res => res.json())
       .then(neighborsData => {
         setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
@@ -228,7 +230,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'visible' }}>
           
           {/* <LeftSidebar> */}
           <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -263,7 +265,7 @@ export default function App() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
             
             {/* <StatsBar> */}
-            <div style={{ display: 'flex', gap: '16px', pointerEvents: 'auto' }}>
+            <div style={{ display: 'flex', gap: '16px', pointerEvents: 'auto', marginTop: '-75px' }}>
               {[ 
                 { val: universeData.length ? universeData.length.toLocaleString() : 0, label: 'Songs' },
                 { val: '8', label: 'Clusters' },
@@ -359,8 +361,9 @@ export default function App() {
                     flex: 1, overflowY: 'auto'
                   }}>
                     <h4 style={{ margin: '0 0 16px 0', color: '#aa00ff', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Nearest Neighbors</h4>
+                    
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {selectedStar.neighbors.map((neighbor, idx) => (
+                      {selectedStar.neighbors.slice(0, showAllNeighbors ? 50 : 5).map((neighbor, idx) => (
                         <div key={idx} onClick={() => handleSearchSelect(neighbor)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingRight: '10px' }}>
                             <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'white', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{neighbor.track_name}</span>
@@ -370,6 +373,19 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+
+                    {!showAllNeighbors && selectedStar.neighbors.length > 5 && (
+                      <button 
+                        onClick={() => setShowAllNeighbors(true)}
+                        style={{ 
+                          width: '100%', marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', 
+                          border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', 
+                          cursor: 'pointer', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' 
+                        }}
+                      >
+                        View All Neighbors ({selectedStar.neighbors.length})
+                      </button>
+                    )}
                   </div>
                 )}
               </>
@@ -747,7 +763,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
           />
           
           {/* Lasers */}
-          {selectedStar.neighbors && selectedStar.neighbors.map((neighbor, idx) => (
+          {selectedStar.neighbors && selectedStar.neighbors.slice(0, 5).map((neighbor, idx) => (
             <ConnectionLaser 
               key={`conn-${idx}`}
               start={selectedStar}

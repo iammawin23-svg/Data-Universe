@@ -138,7 +138,7 @@ def get_song_neighbors(track_id, limit=5):
     song_idx = song_idx_list[0]
     song_vector = [X_scaled[song_idx]]
     query_song = df.iloc[song_idx]
-    distances, indices = nn.kneighbors(song_vector, n_neighbors=40)
+    distances, indices = nn.kneighbors(song_vector, n_neighbors=100)
 
     neighbors_list = []
     
