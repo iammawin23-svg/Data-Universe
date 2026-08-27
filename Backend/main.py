@@ -16,6 +16,7 @@ app.add_middleware(
 
 class RebuildRequest(BaseModel):
     features: List[str]
+    algorithm: str = "pca"
 
 @app.get("/universe")
 def get_universe():
@@ -23,7 +24,7 @@ def get_universe():
 
 @app.post("/rebuild")
 def rebuild(req: RebuildRequest):
-    return generate_universe(req.features)
+    return generate_universe(req.features, req.algorithm)
 
 @app.get("/neighbors/{track_id}")
 def fetch_neighbors(track_id: str, limit: int = 5):

@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.neighbors import NearestNeighbors
+import umap
 import os
 import math
 import time
@@ -45,9 +46,9 @@ global_state = {
     "nn_model": None
 }
 
-def generate_universe(custom_features=None):
+def generate_universe(custom_features=None, algorithm='pca'):
     if raw_df is None:
-        return {"error": "Dataset not found. Check terminal logs."}
+        return {"error": "Dataset not found."}
     
     df = raw_df.copy()
     
@@ -81,16 +82,44 @@ def generate_universe(custom_features=None):
     print(f"PCA: {time.time() - start:.4f} seconds")
 
     start = time.time()
+    if algorithm.lower() == 'umap':
+        print("Running UMAP")
+        reducer = umap.UMAP(n_components=3, random_state=42, n_neighbors=15, min_dist=0.1)
+        local_coords = reducer.fit_transform(X_scaled)
+    else:
+        if len(valid_features) < 3:
+            pca = PCA(n_components=len(valid_features), random_state=42)
+            local_coords = np.zeros((len(df), 3))
+            res = pca.fit_transform(X_scaled)
+            for i in range(len(valid_features)):
+                local_coords[:, i] = res[:, i]
+        else:
+            pca = PCA(n_components=3, random_state=42)
+            local_coords = pca.fit_transform(X_scaled)
+    print(f"3D {algorithm.upper()}: {time.time() - start:.4f} seconds")
+
+    start = time.time()
     np.random.seed(42)
     
-    cluster_radii = np.random.uniform(60, 120, size=8)
+    cluster_radii = np.random.uniform(140, 250, size=8)
     cluster_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False) + np.random.uniform(-0.3, 0.3, size=8)
     
     macro_x = cluster_radii[df['color_id']] * np.cos(cluster_angles[df['color_id']])
     macro_y = cluster_radii[df['color_id']] * np.sin(cluster_angles[df['color_id']])
+    macro_z = np.random.normal(0, 4, size=8)[df['color_id']] 
     
-    lx = local_coords[:, 0] * 28 
-    ly = local_coords[:, 1] * 8  
+    if algorithm.lower() == 'umap':
+        lx = local_coords[:, 0] * 12 
+        ly = local_coords[:, 1] * 12  
+        lz = local_coords[:, 2] * 12
+    else:
+        lx = local_coords[:, 0] * 28 
+        ly = local_coords[:, 1] * 12  
+        lz = local_coords[:, 2] * 18
+    
+    lx += np.random.normal(0, 2.5, size=len(df))
+    ly += np.random.normal(0, 2.5, size=len(df))
+    lz += np.random.normal(0, 2.5, size=len(df))
     
     rot_angles = np.random.uniform(0, 2 * np.pi, size=8)
     point_rot = rot_angles[df['color_id']]
@@ -100,6 +129,7 @@ def generate_universe(custom_features=None):
     
     df['x'] = macro_x + final_local_x
     df['y'] = macro_y + final_local_y
+    df['z'] = macro_z + lz
     print(f"Coordinate Math: {time.time() - start:.4f} seconds")
 
     start = time.time()
@@ -115,8 +145,9 @@ def generate_universe(custom_features=None):
     df['color_id'] = df['color_id'].astype(int)
     df['x'] = df['x'].astype(float)
     df['y'] = df['y'].astype(float)
+    df['z'] = df['z'].astype(float)
     
-    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y']].to_json(orient='records')
+    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y', 'z']].to_json(orient='records')
     print(f"JSON Conversion: {time.time() - start:.4f} seconds")
     print("-----------------------------------\n")
 
@@ -170,6 +201,7 @@ def get_song_neighbors(track_id, limit=5):
             "match": match_pct,
             "x": float(row['x']),
             "y": float(row['y']),
+            "z": float(row['z']),
             "color_id": int(row['color_id'])
         })
         
@@ -198,7 +230,8 @@ def search_songs(query: str, limit: int = 8):
         "track_genre": str(row['track_genre']),
         "color_id": int(row['color_id']),
         "x": float(row['x']),
-        "y": float(row['y'])
+        "y": float(row['y']),
+        "z": float(row['z']),
     } for _, row in results.iterrows()]
 
 

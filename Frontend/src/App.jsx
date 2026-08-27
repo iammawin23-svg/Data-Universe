@@ -18,10 +18,13 @@ export default function App() {
     popularity: true
   })
   const [buildStage, setBuildStage] = useState(null)
+  const [buildProgress, setBuildProgress] = useState(0)
   const [isFading, setIsFading] = useState(false)
   const [focusTarget, setFocusTarget] = useState(null)
   const [isHomeView, setIsHomeView] = useState(true)
   const [resetTick, setResetTick] = useState(0)
+  const [is2DMode, setIs2DMode] = useState(false)
+  const [dimReduction, setDimReduction] = useState('pca')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
 
@@ -44,6 +47,7 @@ export default function App() {
     setSearchResults([])
     setSelectedCluster(null)
     setSelectedStar(song)
+    setFocusTarget(song)
     setShowAllNeighbors(false)
     
     fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=50`)
@@ -68,14 +72,26 @@ export default function App() {
     setSelectedCluster(null)
     setFocusTarget(null)
     setIsBuilding(true)
+    setBuildProgress(0)
     setBuildStage('ANALYZING 114,000 SONG RELATIONSHIPS...')
+    
+    const duration = dimReduction === 'umap' ? 35000 : 5000 
+    const intervalTime = 100
+    const increment = 100 / (duration / intervalTime)
+    
+    const progressInterval = setInterval(() => {
+      setBuildProgress(prev => {
+        if (prev >= 95) return 95
+        return prev + increment
+      })
+    }, intervalTime)
     
     const activeFeatures = Object.keys(features).filter(k => features[k])
     
     fetch('http://127.0.0.1:8000/rebuild', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ features: activeFeatures })
+      body: JSON.stringify({ features: activeFeatures, algorithm: dimReduction }) 
     })
       .then(res => {
         if (!res.ok) throw new Error("Backend connection failed")
@@ -84,6 +100,8 @@ export default function App() {
       .then(data => {
         if (data.error) throw new Error(data.error)
         
+        clearInterval(progressInterval) 
+        setBuildProgress(100) 
         setBuildStage('UNIVERSE REBUILT')
         
         setTimeout(() => {
@@ -99,6 +117,7 @@ export default function App() {
       })
       .catch(err => {
         console.error(err)
+        clearInterval(progressInterval)
         setBuildStage('ERROR: BACKEND FAILED')
         setTimeout(() => {
           setIsBuilding(false)
@@ -112,6 +131,7 @@ export default function App() {
     setSelectedStar(clickedStar)
     setSelectedCluster(null)
     setShowAllNeighbors(false)
+    setFocusTarget(clickedStar)
 
     fetch(`http://127.0.0.1:8000/neighbors/${clickedStar.track_id}?limit=50`)
       .then(res => res.json())
@@ -137,17 +157,25 @@ export default function App() {
             speed={1.5}       
           />
           <OrbitControls 
-            makeDefault enableDamping dampingFactor={0.05} enableRotate={false}
+            makeDefault 
+            enableDamping 
+            dampingFactor={0.05} 
+            enableRotate={!is2DMode} 
             minDistance={20} 
             maxDistance={400}
-            mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
+            mouseButtons={{ 
+              LEFT: is2DMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE, 
+              MIDDLE: THREE.MOUSE.DOLLY, 
+              RIGHT: THREE.MOUSE.PAN 
+            }}
           />
           <CameraTracker setIsHomeView={setIsHomeView} />
-          <CameraRig focusTarget={focusTarget} resetTick={resetTick} /> 
+          <CameraRig focusTarget={focusTarget} resetTick={resetTick} is2DMode={is2DMode} />
           
           {universeData.length > 0 && (
             <UniverseStars 
-              key={Date.now()} 
+              is2DMode={is2DMode}
+              key={Date.now()}
               data={universeData} 
               selectedStar={selectedStar}
               onStarClick={handleStarClick} 
@@ -171,11 +199,23 @@ export default function App() {
           justifyContent: 'center', alignItems: 'center', flexDirection: 'column', color: 'white',
           pointerEvents: 'auto', userSelect: 'none', opacity: isFading ? 0 : 1, transition: 'opacity 1s ease-in-out',
         }}>
-          <h2 style={{ color: '#00ffff', letterSpacing: '4px', margin: '0 0 16px 0', textShadow: '0 0 15px rgba(0,229,255,0.4)' }}>{buildStage}</h2>
-          <div style={{ width: '250px', height: '2px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-            <div style={{ width: '40%', height: '100%', background: '#00ffff', animation: 'slide 1.5s infinite linear' }} />
+          <h2 style={{ color: '#00ffff', letterSpacing: '4px', margin: '0 0 8px 0', textShadow: '0 0 15px rgba(0,229,255,0.4)', textTransform: 'uppercase' }}>
+            {buildStage}
+          </h2>
+          
+          <div style={{ fontSize: '3rem', fontWeight: '900', color: '#fff', marginBottom: '16px', fontVariantNumeric: 'tabular-nums' }}>
+            {Math.round(buildProgress)}%
           </div>
-          <style>{`@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }`}</style>
+
+          <div style={{ width: '350px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', boxShadow: '0 0 20px rgba(170, 0, 255, 0.2)' }}>
+            <div style={{ 
+              width: `${buildProgress}%`, 
+              height: '100%', 
+              background: 'linear-gradient(90deg, #aa00ff 0%, #00ffff 100%)', 
+              transition: 'width 0.15s ease-out',
+              boxShadow: '0 0 10px rgba(0, 255, 255, 0.8)'
+            }} />
+          </div>
         </div>
       )}
 
@@ -230,7 +270,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'visible' }}>
+        <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'visible', minHeight: 0 }}>
           
           {/* <LeftSidebar> */}
           <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -250,6 +290,21 @@ export default function App() {
                 ))}
               </div>
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Dimensionality Reduction</h4>
+                <select 
+                  value={dimReduction} 
+                  onChange={(e) => setDimReduction(e.target.value)}
+                  style={{ 
+                    padding: '10px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', 
+                    color: 'white', borderRadius: '6px', outline: 'none', cursor: 'pointer', fontFamily: 'sans-serif'
+                  }}
+                >
+                  <option value="pca">PCA</option>
+                  <option value="umap">UMAP</option>
+                </select>
+              </div>
+
               {/* <RebuildButton> */}
               <button onClick={handleRebuild} disabled={isBuilding} style={{
                 marginTop: '10px', padding: '12px', border: 'none', color: 'white', borderRadius: '6px',
@@ -257,6 +312,17 @@ export default function App() {
                 background: isBuilding ? '#555' : 'linear-gradient(90deg, #aa00ff 0%, #5500ff 100%)', 
               }}>
                 {isBuilding ? 'CALCULATING...' : 'Rebuild Universe'}
+              </button>
+
+              <button onClick={() => setIs2DMode(!is2DMode)} style={{
+                marginTop: '12px', padding: '12px', 
+                border: `1px solid ${is2DMode ? '#00ffff' : '#aa00ff'}`,
+                color: is2DMode ? '#00ffff' : '#aa00ff', 
+                borderRadius: '6px', cursor: 'pointer', background: 'rgba(0,0,0,0.5)', 
+                fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px',
+                transition: 'all 0.3s ease'
+              }}>
+                {is2DMode ? 'Switch to 3D View' : 'Switch to 2D Map'}
               </button>
             </div>
           </div>
@@ -300,7 +366,7 @@ export default function App() {
           </div>
 
           {/* <RightSidebar> */}
-          <div style={{ width: '380px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto' }}>
+          <div style={{ width: '380px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto', maxHeight: '100%' }}>
             
             {/* SONG DETAILS */}
             {selectedStar && (
@@ -358,7 +424,7 @@ export default function App() {
                   <div style={{
                     background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
                     borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
-                    flex: 1, overflowY: 'auto'
+                    flex: 1, overflowY: 'auto', minHeight: 0
                   }}>
                     <h4 style={{ margin: '0 0 16px 0', color: '#aa00ff', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Nearest Neighbors</h4>
                     
@@ -484,9 +550,15 @@ function SpaceBackground() {
   }, [bgTexture, size]) 
   
   return (
-    <mesh position={[0, 0, -200]}>
-      <planeGeometry args={[10000, 10000]} />
-      <meshBasicMaterial color="#000000" transparent opacity={0.7} depthWrite={false} />
+    <mesh>
+      <sphereGeometry args={[2000, 32, 32]} />
+      <meshBasicMaterial 
+        color="#000000" 
+        transparent 
+        opacity={0.7} 
+        depthWrite={false} 
+        side={THREE.BackSide} 
+      />
     </mesh>
   )
 }
@@ -553,7 +625,7 @@ function CameraTracker({ setIsHomeView }) {
   return null
 }
 
-function CameraRig({ focusTarget, resetTick }) {
+function CameraRig({ focusTarget, resetTick, is2DMode }) {
   const { camera, controls } = useThree()
   const [isFlying, setIsFlying] = useState(false)
   const targetPos = useMemo(() => new THREE.Vector3(), [])
@@ -561,19 +633,21 @@ function CameraRig({ focusTarget, resetTick }) {
 
   useEffect(() => {
     if (focusTarget) {
+      const targetZ = is2DMode ? 0 : (focusTarget.z || 0) 
+
       if (focusTarget.track_name) {
-        targetPos.set(focusTarget.x, focusTarget.y - 2, 25)
-        targetLook.set(focusTarget.x, focusTarget.y, 0)
+        targetPos.set(focusTarget.x, focusTarget.y - (is2DMode ? 0 : 2), targetZ + 25)
+        targetLook.set(focusTarget.x, focusTarget.y, targetZ)
       } else {
-        targetPos.set(focusTarget.x, focusTarget.y - 12, 45)
-        targetLook.set(focusTarget.x, focusTarget.y, 0)
+        targetPos.set(focusTarget.x, focusTarget.y - (is2DMode ? 0 : 12), targetZ + 45)
+        targetLook.set(focusTarget.x, focusTarget.y, targetZ)
       }
     } else {
-      targetPos.set(0, 12, 250)
-      targetLook.set(0, 12, 0)
+      targetPos.set(0, is2DMode ? 0 : 12, 250)
+      targetLook.set(0, is2DMode ? 0 : 12, 0)
     }
     setIsFlying(true)
-  }, [focusTarget, resetTick, targetPos, targetLook])
+  }, [focusTarget, resetTick, is2DMode, targetPos, targetLook])
 
   useFrame(() => {
     if (controls && isFlying) {
@@ -591,7 +665,15 @@ function CameraRig({ focusTarget, resetTick }) {
 }
 
 // --- THE STAR RENDERING ENGINE ---
-function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
+function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMode }) {
+  const groupRef = useRef()
+
+  useFrame(() => {
+    if (groupRef.current) {
+      const targetZ = is2DMode ? 0.0001 : 1
+      groupRef.current.scale.z = THREE.MathUtils.lerp(groupRef.current.scale.z, targetZ, 0.08)
+    }
+  })
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 128
@@ -657,7 +739,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
       if (rand < 3) target = giants          
       else if (rand < 25) target = core      
 
-      target.pos.push(star.x, star.y, (Math.random() - 0.5) * 2) 
+      target.pos.push(star.x, star.y, star.z || 0)
       target.col.push(c.r, c.g, c.b)
       target.idx.push(i) 
     })
@@ -698,7 +780,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick }) {
   }
 
   return (
-    <group>
+    <group ref={groupRef}>
       {galaxyCenters.map((center, i) => {
         const c = colorPalette[center.id % colorPalette.length]
         return (
