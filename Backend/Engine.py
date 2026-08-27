@@ -147,7 +147,14 @@ def generate_universe(custom_features=None, algorithm='pca'):
     df['y'] = df['y'].astype(float)
     df['z'] = df['z'].astype(float)
     
-    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y', 'z']].to_json(orient='records')
+    for col in ['popularity', 'energy', 'danceability', 'tempo', 'loudness', 'valence', 
+                'acousticness', 'instrumentalness', 'liveness', 'speechiness']:
+        if col in df.columns:
+            df[col] = df[col].fillna(0)
+    
+    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y', 'z', 
+                   'popularity', 'energy', 'danceability', 'tempo', 'loudness', 'valence',
+                   'acousticness', 'instrumentalness', 'liveness', 'speechiness']].to_json(orient='records')
     print(f"JSON Conversion: {time.time() - start:.4f} seconds")
     print("-----------------------------------\n")
 
@@ -202,7 +209,17 @@ def get_song_neighbors(track_id, limit=5):
             "x": float(row['x']),
             "y": float(row['y']),
             "z": float(row['z']),
-            "color_id": int(row['color_id'])
+            "color_id": int(row['color_id']),
+            "popularity": int(row.get('popularity', 0)),
+            "energy": float(row.get('energy', 0)),
+            "danceability": float(row.get('danceability', 0)),
+            "tempo": float(row.get('tempo', 0)),
+            "loudness": float(row.get('loudness', 0)),
+            "valence": float(row.get('valence', 0)),
+            "acousticness": float(row.get('acousticness', 0)),
+            "instrumentalness": float(row.get('instrumentalness', 0)),
+            "liveness": float(row.get('liveness', 0)),
+            "speechiness": float(row.get('speechiness', 0))
         })
         
         if len(neighbors_list) >= limit:
@@ -232,6 +249,16 @@ def search_songs(query: str, limit: int = 8):
         "x": float(row['x']),
         "y": float(row['y']),
         "z": float(row['z']),
+        "popularity": int(row.get('popularity', 0)),
+        "energy": float(row.get('energy', 0)),
+        "danceability": float(row.get('danceability', 0)),
+        "tempo": float(row.get('tempo', 0)),
+        "loudness": float(row.get('loudness', 0)),
+        "valence": float(row.get('valence', 0)),
+        "acousticness": float(row.get('acousticness', 0)),
+        "instrumentalness": float(row.get('instrumentalness', 0)),
+        "liveness": float(row.get('liveness', 0)),
+        "speechiness": float(row.get('speechiness', 0))
     } for _, row in results.iterrows()]
 
 

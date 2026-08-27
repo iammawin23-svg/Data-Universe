@@ -3,6 +3,24 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Html, Stars } from '@react-three/drei'
 import * as THREE from 'three'
 
+const GALAXY_COLORS = ['#e36658', '#a0caf2', '#f5e7a9', '#d793f8', '#82e063', '#ffa346', '#464acd', '#ffffff']
+const GALAXY_NAMES = ['Pop & Dance', 'Rock & Punk', 'Metal', 'Hip-Hop & R&B', 'Electronic', 'Acoustic & Folk', 'World & Latin', 'Classical & Other']
+function ZoomController({ zoomTick }) {
+  const { camera } = useThree()
+  const prevTick = useRef(zoomTick)
+
+  useEffect(() => {
+    if (zoomTick > prevTick.current) {
+      camera.translateZ(-30) // Zoom In
+    } else if (zoomTick < prevTick.current) {
+      camera.translateZ(30)  // Zoom Out
+    }
+    prevTick.current = zoomTick
+  }, [zoomTick, camera])
+  
+  return null
+}
+
 export default function App() {
   const [universeData, setUniverseData] = useState([])
   const [selectedStar, setSelectedStar] = useState(null)
@@ -15,7 +33,11 @@ export default function App() {
     tempo: true,
     loudness: true,
     valence: true,
-    popularity: true
+    popularity: true,
+    acousticness: true,
+    instrumentalness: true,
+    liveness: true,
+    speechiness: true
   })
   const [buildStage, setBuildStage] = useState(null)
   const [buildProgress, setBuildProgress] = useState(0)
@@ -25,6 +47,11 @@ export default function App() {
   const [resetTick, setResetTick] = useState(0)
   const [is2DMode, setIs2DMode] = useState(false)
   const [dimReduction, setDimReduction] = useState('pca')
+  const [pointSizeBy, setPointSizeBy] = useState('default')
+  const [visibleCluster, setVisibleCluster] = useState('all') 
+  const [colorBy, setColorBy] = useState('cluster')
+  const [showClusterPaths, setShowClusterPaths] = useState(false)
+  const [zoomTick, setZoomTick] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
 
@@ -141,6 +168,11 @@ export default function App() {
       .catch(err => console.error("Sniper fetch failed:", err))
   }
 
+  const filteredUniverse = useMemo(() => {
+    if (visibleCluster === 'all') return universeData;
+    return universeData.filter(star => star.color_id === parseInt(visibleCluster));
+  }, [universeData, visibleCluster])
+
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#050505', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       
@@ -172,11 +204,16 @@ export default function App() {
           <CameraTracker setIsHomeView={setIsHomeView} />
           <CameraRig focusTarget={focusTarget} resetTick={resetTick} is2DMode={is2DMode} />
           
+          <ZoomController zoomTick={zoomTick} />
+
           {universeData.length > 0 && (
             <UniverseStars 
               is2DMode={is2DMode}
+              pointSizeBy={pointSizeBy}
+              colorBy={colorBy}
+              showClusterPaths={showClusterPaths}
               key={Date.now()}
-              data={universeData} 
+              data={filteredUniverse}
               selectedStar={selectedStar}
               onStarClick={handleStarClick} 
               onGalaxyClick={(center, name) => {
@@ -238,7 +275,7 @@ export default function App() {
           <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
             <div style={{ width: '100%', maxWidth: '350px', position: 'relative' }}>
               <input
-                type="text" placeholder="Search a song or artist..." value={searchQuery}
+                type="text" placeholder="🔍 Search..." value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
                   width: '100%', padding: '12px 20px', borderRadius: '30px', background: 'rgba(20, 20, 25, 0.6)',
@@ -273,56 +310,143 @@ export default function App() {
         <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'visible', minHeight: 0 }}>
           
           {/* <LeftSidebar> */}
-          <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px', height: '100%' }}>
             <div style={{
-              background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
+              background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', 
+              padding: '20px',
               borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
-              display: 'flex', flexDirection: 'column', gap: '20px'
+              display: 'flex', flexDirection: 'column', gap: '14px',
+              height: '100%'
             }}>
-              <h3 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.9rem', letterSpacing: '1px' }}>Universe Controls</h3>
+              <h3 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.85rem', letterSpacing: '1px' }}>Universe Controls</h3>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Checkboxes */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {Object.keys(features).map(feature => (
-                  <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.9rem' }}>
-                    <input type="checkbox" checked={features[feature]} onChange={() => toggleFeature(feature)} style={{ accentColor: '#aa00ff', cursor: 'pointer' }} />
+                  <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={features[feature]} 
+                      onChange={() => toggleFeature(feature)} 
+                      style={{ accentColor: '#aa00ff', cursor: 'pointer', width: '14px', height: '14px' }} 
+                    />
                     <span style={{ textTransform: 'capitalize' }}>{feature}</span>
                   </label>
                 ))}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Dimensionality Reduction</h4>
-                <select 
-                  value={dimReduction} 
-                  onChange={(e) => setDimReduction(e.target.value)}
-                  style={{ 
-                    padding: '10px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', 
-                    color: 'white', borderRadius: '6px', outline: 'none', cursor: 'pointer', fontFamily: 'sans-serif'
-                  }}
-                >
+              {/* DimensionalReduction */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Dimensionality Reduction</h4>
+                <select value={dimReduction} onChange={(e) => setDimReduction(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
                   <option value="pca">PCA</option>
                   <option value="umap">UMAP</option>
                 </select>
               </div>
 
-              {/* <RebuildButton> */}
+              {/* ClusterSelector */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Visible Cluster</h4>
+                <select value={visibleCluster} onChange={(e) => setVisibleCluster(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                  <option value="all">All Galaxies</option>
+                  <option value="0">Pop & Dance</option>
+                  <option value="1">Rock & Punk</option>
+                  <option value="2">Metal</option>
+                  <option value="3">Hip-Hop & R&B</option>
+                  <option value="4">Electronic</option>
+                  <option value="5">Acoustic & Folk</option>
+                  <option value="6">World & Latin</option>
+                  <option value="7">Classical & Other</option>
+                </select>
+              </div>
+
+              {/* PointSizeSelector */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Point Size By</h4>
+                <select value={pointSizeBy} onChange={(e) => setPointSizeBy(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                  <option value="default">Default</option>
+                  <option value="popularity">Popularity</option>
+                  <option value="energy">Energy</option>
+                  <option value="danceability">Danceability</option>
+                  <option value="valence">Valence (Mood)</option>
+                </select>
+              </div>
+
+              {/* ColorSelector */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Color By</h4>
+                <select value={colorBy} onChange={(e) => setColorBy(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                  <option value="cluster">Cluster (Genre)</option>
+                  <option value="popularity">Popularity Heatmap</option>
+                  <option value="energy">Energy Heatmap</option>
+                  <option value="danceability">Dance Heatmap</option>
+                  <option value="valence">Valence Heatmap</option>
+                </select>
+              </div>
+
+              {/* UniverseViewSelector */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Universe View</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  
+                  {/* 2D View Button */}
+                  <button 
+                    onClick={() => setIs2DMode(true)}
+                    style={{
+                      padding: '10px 14px',
+                      background: is2DMode ? 'linear-gradient(90deg, rgba(170,0,255,0.4) 0%, rgba(85,0,255,0.4) 100%)' : 'rgba(0,0,0,0.4)',
+                      border: `1px solid ${is2DMode ? '#aa00ff' : 'rgba(255,255,255,0.1)'}`,
+                      color: is2DMode ? '#fff' : '#aaa',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontFamily: 'sans-serif',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: '1.2rem', opacity: is2DMode ? 1 : 0.5 }}>🌌</span> 
+                    <span style={{ fontWeight: is2DMode ? 'bold' : 'normal' }}>2D Galaxy</span>
+                  </button>
+
+                  {/* 3D View Button */}
+                  <button 
+                    onClick={() => setIs2DMode(false)}
+                    style={{
+                      padding: '10px 14px',
+                      background: !is2DMode ? 'linear-gradient(90deg, rgba(170,0,255,0.4) 0%, rgba(85,0,255,0.4) 100%)' : 'rgba(0,0,0,0.4)',
+                      border: `1px solid ${!is2DMode ? '#aa00ff' : 'rgba(255,255,255,0.1)'}`,
+                      color: !is2DMode ? '#fff' : '#aaa',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontFamily: 'sans-serif',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: '1.2rem', opacity: !is2DMode ? 1 : 0.5 }}>🧊</span> 
+                    <span style={{ fontWeight: !is2DMode ? 'bold' : 'normal' }}>3D Galaxy</span>
+                  </button>
+                  
+                </div>
+              </div>
+
+              {/* Rebuild Button */}
               <button onClick={handleRebuild} disabled={isBuilding} style={{
-                marginTop: '10px', padding: '12px', border: 'none', color: 'white', borderRadius: '6px',
-                cursor: isBuilding ? 'wait' : 'pointer', fontWeight: 'bold', letterSpacing: '1px',
+                marginTop: 'auto',
+                padding: '12px',
+                border: 'none', color: 'white', borderRadius: '6px',
+                cursor: isBuilding ? 'wait' : 'pointer', fontWeight: 'bold', letterSpacing: '1px', fontSize: '0.85rem',
                 background: isBuilding ? '#555' : 'linear-gradient(90deg, #aa00ff 0%, #5500ff 100%)', 
               }}>
                 {isBuilding ? 'CALCULATING...' : 'Rebuild Universe'}
-              </button>
-
-              <button onClick={() => setIs2DMode(!is2DMode)} style={{
-                marginTop: '12px', padding: '12px', 
-                border: `1px solid ${is2DMode ? '#00ffff' : '#aa00ff'}`,
-                color: is2DMode ? '#00ffff' : '#aa00ff', 
-                borderRadius: '6px', cursor: 'pointer', background: 'rgba(0,0,0,0.5)', 
-                fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px',
-                transition: 'all 0.3s ease'
-              }}>
-                {is2DMode ? 'Switch to 3D View' : 'Switch to 2D Map'}
               </button>
             </div>
           </div>
@@ -349,19 +473,69 @@ export default function App() {
               ))}
             </div>
 
-            {/* <UniverseControls> */}
-            <div style={{ paddingBottom: '20px', pointerEvents: 'auto' }}>
-              {!isHomeView && !isBuilding && (
-                <button onClick={() => { setFocusTarget(null); setResetTick(prev => prev + 1); }}
-                  style={{
-                    background: 'rgba(15, 15, 20, 0.8)', border: '1px solid #00ffff', color: '#00ffff',
-                    padding: '12px 24px', borderRadius: '30px', cursor: 'pointer', fontFamily: 'sans-serif',
-                    textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', backdropFilter: 'blur(10px)',
-                    boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)'
-                  }}>
-                  Reset Universe View
+            {/* <UniverseControls & Footer> */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+              width: '100%', pointerEvents: 'auto', 
+              marginTop: 'auto',
+              fontFamily: 'sans-serif'
+            }}>
+              
+              {/* Control Bar */}
+              <div style={{ 
+                display: 'flex', alignItems: 'center', gap: '16px',
+                background: 'rgba(15, 15, 20, 0.8)', padding: '12px 24px',
+                borderRadius: '12px', 
+                border: '1px solid rgba(255,255,255,0.1)',
+                backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+              }}>
+                <button onClick={() => setZoomTick(p => p - 1)} style={{ fontFamily: 'sans-serif', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
+                  <span style={{ fontSize: '1.2rem' }}>➖</span> Zoom Out
                 </button>
-              )}
+                <button onClick={() => setZoomTick(p => p + 1)} style={{ fontFamily: 'sans-serif', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
+                  <span style={{ fontSize: '1.2rem' }}>➕</span> Zoom In
+                </button>
+                
+                <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.2)', margin: '0 8px' }} />
+                
+                <button onClick={() => { setFocusTarget(null); setResetTick(prev => prev + 1); }} style={{ fontFamily: 'sans-serif', background: 'transparent', border: 'none', color: '#00ffff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🔄</span> Reset View
+                </button>
+
+                <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.2)', margin: '0 8px' }} />
+                
+                {/* Toggle Switch */}
+                <label style={{ fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '8px', color: '#fff', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
+                  Show Cluster Path
+                  <div style={{
+                    width: '36px', height: '20px', background: showClusterPaths ? '#aa00ff' : 'rgba(255,255,255,0.2)',
+                    borderRadius: '10px', position: 'relative', transition: 'all 0.2s ease'
+                  }}>
+                    <div style={{
+                      width: '16px', height: '16px', background: '#fff', borderRadius: '50%',
+                      position: 'absolute', top: '2px', left: showClusterPaths ? '18px' : '2px', transition: 'all 0.2s ease'
+                    }} />
+                  </div>
+                  <input type="checkbox" checked={showClusterPaths} onChange={() => setShowClusterPaths(!showClusterPaths)} style={{ display: 'none' }} />
+                </label>
+              </div>
+
+              {/* Cluster Legend */}
+              <div style={{ 
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
+                background: 'rgba(15, 15, 20, 0.8)', padding: '12px 24px',
+                borderRadius: '12px', 
+                border: '1px solid rgba(255,255,255,0.1)',
+                backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                width: '100%', flexWrap: 'nowrap', overflowX: 'auto' 
+              }}>
+                {GALAXY_NAMES.map((name, i) => (
+                  <div key={i} style={{ fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#ccc', whiteSpace: 'nowrap' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: GALAXY_COLORS[i], boxShadow: `0 0 8px ${GALAXY_COLORS[i]}` }} />
+                    {name}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -613,6 +787,49 @@ function ConnectionLaser({ start, end, match, color }) {
     </group>
   )
 }
+
+function AnimatedClusterPath({ points, color }) {
+  const particleRef = useRef()
+  
+  const positions = useMemo(() => {
+    const arr = new Float32Array(points.length * 3)
+    points.forEach((p, i) => {
+      arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z
+    })
+    return arr
+  }, [points])
+
+  useFrame(({ clock }) => {
+    if (!particleRef.current) return
+    
+    const t = (clock.elapsedTime * 0.4) % 1.0 
+    const totalSegments = points.length - 1
+    const scaledT = t * totalSegments
+    const index = Math.floor(scaledT)
+    const segmentT = scaledT - index
+    
+    if (index < totalSegments) {
+      particleRef.current.position.lerpVectors(points[index], points[index + 1], segmentT)
+    }
+  })
+
+  return (
+    <group>
+      <line>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={points.length} array={positions} itemSize={3} />
+        </bufferGeometry>
+        <lineBasicMaterial color={color} transparent opacity={0.6} blending={THREE.AdditiveBlending} />
+      </line>
+      
+      <mesh ref={particleRef}>
+        <circleGeometry args={[0.5, 16]} />
+        <meshBasicMaterial color={'#ffffff'} transparent blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+    </group>
+  )
+}
+
 function CameraTracker({ setIsHomeView }) {
   const { camera } = useThree()
   const homePos = useMemo(() => new THREE.Vector3(0, 12, 130), [])
@@ -665,7 +882,7 @@ function CameraRig({ focusTarget, resetTick, is2DMode }) {
 }
 
 // --- THE STAR RENDERING ENGINE ---
-function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMode }) {
+function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMode, pointSizeBy, colorBy, showClusterPaths }) {
   const groupRef = useRef()
 
   useFrame(() => {
@@ -674,6 +891,9 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
       groupRef.current.scale.z = THREE.MathUtils.lerp(groupRef.current.scale.z, targetZ, 0.08)
     }
   })
+
+
+
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 128
@@ -703,11 +923,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
     return new THREE.CanvasTexture(canvas)
   }, [])
 
-  const colorPalette = [
-    new THREE.Color('#e36658'), new THREE.Color('#a0caf2'), new THREE.Color('#f5e7a9'),
-    new THREE.Color('#d793f8'), new THREE.Color('#82e063'), new THREE.Color('#ffa346'),
-    new THREE.Color('#464acd'), new THREE.Color('#ffffff')
-  ]
+  const colorPalette = useMemo(() => GALAXY_COLORS.map(c => new THREE.Color(c)), [])
 
   const GALAXY_NAMES = [
     'Pop & Dance','Rock & Punk','Metal','Hip-Hop & R&B',
@@ -726,18 +942,48 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
     return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id, count: c.count }))
   }, [data])
 
-  const tiers = useMemo(() => {
+const tiers = useMemo(() => {
     const dust = { pos: [], col: [], idx: [] }
     const core = { pos: [], col: [], idx: [] }
     const giants = { pos: [], col: [], idx: [] }
 
     data.forEach((star, i) => {
-      const rand = (i * 137) % 100 
-      const c = colorPalette[star.color_id % colorPalette.length]
+      
+      const c = new THREE.Color()
+      if (colorBy === 'cluster') {
+        c.copy(colorPalette[star.color_id % colorPalette.length])
+      } else {
+        const val = star[colorBy] || 0
+        let norm = val
+        if (colorBy === 'popularity') norm = val / 100
+        
+        c.lerpColors(new THREE.Color('#00ffff'), new THREE.Color('#ff00ff'), norm)
+      }
 
       let target = dust
-      if (rand < 3) target = giants          
-      else if (rand < 25) target = core      
+      
+      if (pointSizeBy !== 'default') {
+        const val = star[pointSizeBy] || 0
+        let isGiant = false
+        let isCore = false
+        
+        if (pointSizeBy === 'popularity') { 
+          isGiant = val >= 75; isCore = val >= 45 
+        } else if (pointSizeBy === 'tempo') { 
+          isGiant = val >= 140; isCore = val >= 105
+        } else if (pointSizeBy === 'loudness') { 
+          isGiant = val >= -5; isCore = val >= -10
+        } else { 
+          isGiant = val >= 0.75; isCore = val >= 0.5 
+        }
+
+        if (isGiant) target = giants
+        else if (isCore) target = core
+      } else {
+        const rand = (i * 137) % 100 
+        if (rand < 3) target = giants          
+        else if (rand < 25) target = core 
+      }
 
       target.pos.push(star.x, star.y, star.z || 0)
       target.col.push(c.r, c.g, c.b)
@@ -749,7 +995,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
       core: { p: new Float32Array(core.pos), c: new Float32Array(core.col), i: core.idx },
       giants: { p: new Float32Array(giants.pos), c: new Float32Array(giants.col), i: giants.idx }
     }
-  }, [data])
+  }, [data, pointSizeBy, colorBy])
 
   const handleClick = (tierIndices) => (e) => {
     e.stopPropagation()
@@ -766,7 +1012,6 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
       const star = data[tierIndices[e.index]]
       clearTimeout(hoverTimeout.current)
       
-      // Wait 150ms
       hoverTimeout.current = setTimeout(() => {
         setHoveredStar(star)
       }, 150) 
@@ -831,6 +1076,30 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
         </bufferGeometry>
         <pointsMaterial size={6.0} map={glowTexture} vertexColors transparent opacity={1.0} blending={THREE.AdditiveBlending} depthWrite={false} />
       </points>
+
+      {showClusterPaths && (
+        selectedStar && selectedStar.neighbors ? (() => {
+          
+          const targetCenter = galaxyCenters.find(c => c.id === selectedStar.color_id) || { x: 0, y: 0 }
+          
+          const pathPoints = [
+            new THREE.Vector3(selectedStar.x, selectedStar.y, 2.5),
+            ...selectedStar.neighbors.slice(0, 4).map(n => new THREE.Vector3(n.x, n.y, 2.5)),
+            new THREE.Vector3(targetCenter.x, targetCenter.y, 0)
+          ]
+
+          return <AnimatedClusterPath points={pathPoints} color={colorPalette[selectedStar.color_id % colorPalette.length]} />
+          
+        })() : galaxyCenters.map((center, i) => (
+          <line key={`path-${i}`}>
+            <bufferGeometry>
+              <bufferAttribute attach="attributes-position" count={2} array={new Float32Array([0, 0, 0, center.x, center.y, 0])} itemSize={3} />
+            </bufferGeometry>
+            <lineBasicMaterial color={colorPalette[center.id % colorPalette.length]} transparent opacity={0.2} />
+          </line>
+        ))
+      )}
+
       {/* TARGET RING & NEIGHBOR LASERS */}
       {selectedStar && (
         <group position={[0, 0, 1]}>
@@ -896,12 +1165,11 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
       })}
 
       {hoveredStar && (() => {
-        // Grab the exact galaxy color for this specific song
         const glowColor = colorPalette[hoveredStar.color_id % colorPalette.length].getStyle()
         
         return (
           <group position={[hoveredStar.x, hoveredStar.y, 2]}>
-            {/* The Dynamic Galaxy-Colored Ring */}
+            {/* Galaxy Colored Ring */}
             <mesh>
               <ringGeometry args={[1.0, 1.4, 32]} />
               <meshBasicMaterial color={glowColor} transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
