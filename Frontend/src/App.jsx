@@ -52,6 +52,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [dataset, setDataset] = useState('spotify')
+  const isFirstMount = useRef(true)
 
   const currentGalaxyNames = dataset === 'anime' ? ANIME_GALAXY_NAMES : SPOTIFY_GALAXY_NAMES
 
@@ -121,12 +122,24 @@ export default function App() {
   }
 
   useEffect(() => {
+    fetch('http://127.0.0.1:8000/universe')
+      .then(res => res.json())
+      .then(data => setUniverseData(data))
+      .catch(err => console.error("Fast boot failed:", err))
+  }, [])
+
+  useEffect(() => {
     const newFeatures = dataset === 'anime' ? ANIME_FEATURES : SPOTIFY_FEATURES
     setFeatures(newFeatures)
     setVisibleCluster('all')
     setPointSizeBy('default')
     setColorBy('cluster')
     
+    if (isFirstMount.current) {
+      isFirstMount.current = false
+      return
+    }
+
     executeRebuild(dataset, newFeatures, dimReduction)
   }, [dataset])
 

@@ -98,8 +98,29 @@ def generate_universe(custom_features=None, algorithm='pca', dataset='spotify'):
     print(f"Scaling: {time.time() - start:.4f} seconds")
 
     start = time.time()
-    kmeans = MiniBatchKMeans(n_clusters=8, random_state=42, batch_size=2048, n_init='auto')
-    df['color_id'] = kmeans.fit_predict(X_scaled)
+    
+    if dataset == 'anime':
+        print("Applying Smart Genre Clustering for Anime...")
+        def assign_anime_cluster(row):
+            g = str(row.get('track_genre', '')).lower()
+            t = str(row.get('super_genre', '')).lower()
+
+            if 'action' in g or 'shounen' in g or 'martial arts' in g: return 0
+            if 'romance' in g or 'drama' in g: return 1
+            if 'sci-fi' in g or 'mecha' in g or 'space' in g: return 2
+            if 'comedy' in g or 'slice of life' in g or 'parody' in g: return 3
+            if 'fantasy' in g or 'magic' in g or 'supernatural' in g: return 4
+            if 'mystery' in g or 'psychological' in g or 'horror' in g: return 5
+            
+            if t in ['movie', 'ova', 'ona', 'special']: return 6
+            return 7
+            
+        df['color_id'] = df.apply(assign_anime_cluster, axis=1)
+        
+    else:
+        kmeans = MiniBatchKMeans(n_clusters=8, random_state=42, batch_size=2048, n_init='auto')
+        df['color_id'] = kmeans.fit_predict(X_scaled)
+        
     print(f"Clustering: {time.time() - start:.4f} seconds")
 
     start = time.time()
@@ -114,7 +135,7 @@ def generate_universe(custom_features=None, algorithm='pca', dataset='spotify'):
     start = time.time()
     if algorithm.lower() == 'umap':
         print("Running UMAP")
-        reducer = umap.UMAP(n_components=3, random_state=42, n_neighbors=15, min_dist=0.1)
+        reducer = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.1, n_jobs=-1)
         local_coords = reducer.fit_transform(X_scaled)
     else:
         if len(valid_features) < 3:
