@@ -4,16 +4,22 @@ import { OrbitControls, Html, Stars } from '@react-three/drei'
 import * as THREE from 'three'
 
 const GALAXY_COLORS = ['#e36658', '#a0caf2', '#f5e7a9', '#d793f8', '#82e063', '#ffa346', '#464acd', '#ffffff']
-const GALAXY_NAMES = ['Pop & Dance', 'Rock & Punk', 'Metal', 'Hip-Hop & R&B', 'Electronic', 'Acoustic & Folk', 'World & Latin', 'Classical & Other']
+
+const SPOTIFY_GALAXY_NAMES = ['Pop & Dance', 'Rock & Punk', 'Metal', 'Hip-Hop & R&B', 'Electronic', 'Acoustic & Folk', 'World & Latin', 'Classical & Other']
+const ANIME_GALAXY_NAMES = ['Action & Shounen', 'Romance & Drama', 'Sci-Fi & Mecha', 'Comedy & Slice of Life', 'Fantasy & Isekai', 'Mystery & Psych', 'Movies & OVAs', 'Classics & Kids']
+
+const SPOTIFY_FEATURES = { energy: true, danceability: true, tempo: true, loudness: true, valence: true, popularity: true, acousticness: true, instrumentalness: true, liveness: true, speechiness: true }
+const ANIME_FEATURES = { energy: true, popularity: true, episodes: true, ranked: true, members: true, favorites: true }
+
 function ZoomController({ zoomTick }) {
   const { camera } = useThree()
   const prevTick = useRef(zoomTick)
 
   useEffect(() => {
     if (zoomTick > prevTick.current) {
-      camera.translateZ(-30) // Zoom In
+      camera.translateZ(-30) 
     } else if (zoomTick < prevTick.current) {
-      camera.translateZ(30)  // Zoom Out
+      camera.translateZ(30)  
     }
     prevTick.current = zoomTick
   }, [zoomTick, camera])
@@ -27,18 +33,9 @@ export default function App() {
   const [selectedCluster, setSelectedCluster] = useState(null)
   const [isBuilding, setIsBuilding] = useState(false)
   const [showAllNeighbors, setShowAllNeighbors] = useState(false)
-  const [features, setFeatures] = useState({
-    energy: true,
-    danceability: true,
-    tempo: true,
-    loudness: true,
-    valence: true,
-    popularity: true,
-    acousticness: true,
-    instrumentalness: true,
-    liveness: true,
-    speechiness: true
-  })
+  
+  const [features, setFeatures] = useState(SPOTIFY_FEATURES)
+  
   const [buildStage, setBuildStage] = useState(null)
   const [buildProgress, setBuildProgress] = useState(0)
   const [isFading, setIsFading] = useState(false)
@@ -54,71 +51,41 @@ export default function App() {
   const [zoomTick, setZoomTick] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
+  const [dataset, setDataset] = useState('spotify')
 
-  useEffect(() => {
-    if (searchQuery.length < 2) {
-      setSearchResults([])
-      return
-    }
-    const delay = setTimeout(() => {
-      fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(searchQuery)}`)
-        .then(res => res.json())
-        .then(data => setSearchResults(data))
-    }, 250) // 250ms delay prevents spamming the backend while typing
-    
-    return () => clearTimeout(delay)
-  }, [searchQuery])
+  const currentGalaxyNames = dataset === 'anime' ? ANIME_GALAXY_NAMES : SPOTIFY_GALAXY_NAMES
 
-  const handleSearchSelect = (song) => {
-    setSearchQuery('')
-    setSearchResults([])
-    setSelectedCluster(null)
-    setSelectedStar(song)
-    setFocusTarget(song)
-    setShowAllNeighbors(false)
-    
-    fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=50`)
-      .then(res => res.json())
-      .then(neighborsData => {
-        setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
-      })
-  }
-
-  useEffect(() => {
-    fetch('http://127.0.0.1:8000/universe')
-      .then(res => res.json())
-      .then(data => setUniverseData(data))
-  }, [])
-
-  const toggleFeature = (feat) => {
-    setFeatures(prev => ({ ...prev, [feat]: !prev[feat] }))
-  }
-
-  const handleRebuild = () => {
+  const executeRebuild = (targetDataset, targetFeatures, targetDim) => {
     setSelectedStar(null)
     setSelectedCluster(null)
     setFocusTarget(null)
     setIsBuilding(true)
     setBuildProgress(0)
-    setBuildStage('ANALYZING 114,000 SONG RELATIONSHIPS...')
-    
-    const duration = dimReduction === 'umap' ? 35000 : 5000 
+    setUniverseData([]) 
+
+    setBuildStage(targetDataset === 'anime' ? 'ANALYZING 20,000 ANIME RELATIONSHIPS...' : 'ANALYZING 114,000 SONG RELATIONSHIPS...')
+
+    const duration = targetDim === 'umap' ? 25000 : 5000 
     const intervalTime = 100
     const increment = 100 / (duration / intervalTime)
-    
+
     const progressInterval = setInterval(() => {
       setBuildProgress(prev => {
         if (prev >= 95) return 95
         return prev + increment
       })
     }, intervalTime)
-    
-    const activeFeatures = Object.keys(features).filter(k => features[k])
-    
+
+    const activeFeatures = Object.keys(targetFeatures).filter(k => targetFeatures[k])
+
     fetch('http://127.0.0.1:8000/rebuild', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ features: activeFeatures, algorithm: dimReduction }) 
+      body: JSON.stringify({ 
+        features: activeFeatures, 
+        algorithm: targetDim,
+        dataset: targetDataset
+      }) 
     })
       .then(res => {
         if (!res.ok) throw new Error("Backend connection failed")
@@ -153,6 +120,58 @@ export default function App() {
       })
   }
 
+  useEffect(() => {
+    const newFeatures = dataset === 'anime' ? ANIME_FEATURES : SPOTIFY_FEATURES
+    setFeatures(newFeatures)
+    setVisibleCluster('all')
+    setPointSizeBy('default')
+    setColorBy('cluster')
+    
+    executeRebuild(dataset, newFeatures, dimReduction)
+  }, [dataset])
+
+  const handleRebuild = () => {
+    executeRebuild(dataset, features, dimReduction)
+  }
+
+  useEffect(() => {
+    if (searchQuery.length < 2) {
+      setSearchResults([])
+      return
+    }
+    const delay = setTimeout(() => {
+      fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(searchQuery)}`)
+        .then(res => res.json())
+        .then(data => setSearchResults(data))
+    }, 250)
+    
+    return () => clearTimeout(delay)
+  }, [searchQuery])
+
+  const handleSearchSelect = (song) => {
+    setSearchQuery('')
+    setSearchResults([])
+    setSelectedCluster(null)
+    setSelectedStar(song)
+    setFocusTarget(song)
+    setShowAllNeighbors(false)
+    
+    fetch(`http://127.0.0.1:8000/neighbors/${song.track_id}?limit=50`)
+      .then(res => res.json())
+      .then(neighborsData => {
+        if (neighborsData.error) {
+          setSelectedStar(prev => ({ ...prev, neighbors: [] }))
+        } else {
+          setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
+        }
+      })
+      .catch(err => console.error("Sniper fetch failed:", err))
+  }
+
+  const toggleFeature = (feat) => {
+    setFeatures(prev => ({ ...prev, [feat]: !prev[feat] }))
+  }
+
   const handleStarClick = (index) => {
     const clickedStar = universeData[index]
     setSelectedStar(clickedStar)
@@ -163,7 +182,11 @@ export default function App() {
     fetch(`http://127.0.0.1:8000/neighbors/${clickedStar.track_id}?limit=50`)
       .then(res => res.json())
       .then(neighborsData => {
-        setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
+        if (neighborsData.error) {
+          setSelectedStar(prev => ({ ...prev, neighbors: [] }))
+        } else {
+          setSelectedStar(prev => ({ ...prev, neighbors: neighborsData }))
+        }
       })
       .catch(err => console.error("Sniper fetch failed:", err))
   }
@@ -176,6 +199,12 @@ export default function App() {
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#050505', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       
+      {/* 👇 SCROLLBAR NUKE: Kills scrollbars globally but keeps scrolling functional! */}
+      <style>{`
+        ::-webkit-scrollbar { display: none; }
+        * { scrollbar-width: none; ms-overflow-style: none; }
+      `}</style>
+
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
         <Canvas camera={{ position: [0, 12, 130], fov: 60 }}>
           <SpaceBackground />
@@ -212,6 +241,8 @@ export default function App() {
               pointSizeBy={pointSizeBy}
               colorBy={colorBy}
               showClusterPaths={showClusterPaths}
+              dataset={dataset}
+              galaxyNames={currentGalaxyNames}
               key={Date.now()}
               data={filteredUniverse}
               selectedStar={selectedStar}
@@ -222,7 +253,13 @@ export default function App() {
                 
                 fetch(`http://127.0.0.1:8000/cluster/${center.id}`)
                   .then(res => res.json())
-                  .then(data => setSelectedCluster({ ...data, name }))
+                  .then(data => {
+                    if (data.error) {
+                      console.error("Crash Prevented: Rebuild Universe First!", data.error)
+                    } else {
+                      setSelectedCluster({ ...data, name })
+                    }
+                  })
               }} 
             />
           )}
@@ -260,7 +297,6 @@ export default function App() {
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 32px', pointerEvents: 'auto', background: 'linear-gradient(180deg, rgba(5,5,5,0.95) 0%, rgba(5,5,5,0) 100%)' }}>
           
-          {/* <Logo> */}
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: '1.8rem', letterSpacing: '6px', color: '#fff', textShadow: '0 0 20px rgba(255,255,255,0.3)' }}>
               DATA UNIVERSE
@@ -268,10 +304,8 @@ export default function App() {
             <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#888' }}>Explore. Discover. Understand your data.</p>
           </div>
 
-          {/* Placeholder */}
           <div style={{ flex: 1 }}></div>
 
-          {/* <SearchBar> */}
           <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
             <div style={{ width: '100%', maxWidth: '350px', position: 'relative' }}>
               <input
@@ -307,36 +341,61 @@ export default function App() {
             </div>
           </div>
         </div>
+
         <div style={{ display: 'flex', flex: 1, padding: '0 32px 32px 32px', gap: '24px', overflow: 'visible', minHeight: 0 }}>
           
-          {/* <LeftSidebar> */}
           <div style={{ width: '280px', pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '24px', height: '100%' }}>
+            
+            {/* LEFT SIDEBAR */}
             <div style={{
               background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', 
-              padding: '20px',
+              padding: '16px 20px',
               borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
-              display: 'flex', flexDirection: 'column', gap: '14px',
-              height: '100%'
+              display: 'flex', flexDirection: 'column', gap: '10px',
+              height: '100%',
+              overflowY: 'auto'
             }}>
               <h3 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.85rem', letterSpacing: '1px' }}>Universe Controls</h3>
               
-              {/* Checkboxes */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {Object.keys(features).map(feature => (
-                  <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={features[feature]} 
-                      onChange={() => toggleFeature(feature)} 
-                      style={{ accentColor: '#aa00ff', cursor: 'pointer', width: '14px', height: '14px' }} 
-                    />
-                    <span style={{ textTransform: 'capitalize' }}>{feature}</span>
-                  </label>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                <h4 style={{ margin: 0, color: '#00ffff', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Active Universe</h4>
+                <select 
+                  value={dataset} 
+                  onChange={(e) => setDataset(e.target.value)} 
+                  style={{ 
+                    padding: '8px', background: 'rgba(0, 255, 255, 0.1)', border: '1px solid rgba(0, 255, 255, 0.4)', 
+                    color: '#00ffff', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' 
+                  }}
+                >
+                  <option value="spotify">Spotify Tracks</option>
+                  <option value="anime">Anime Catalog</option>
+                </select>
               </div>
 
-              {/* DimensionalReduction */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
+                {Object.keys(features).map(feature => {
+                  let label = feature;
+                  if (feature === 'danceability') label = 'Danceable';
+                  if (feature === 'acousticness') label = 'Acoustic';
+                  if (feature === 'instrumentalness') label = 'Instrumental';
+                  if (feature === 'speechiness') label = 'Speech';
+                  if (feature === 'energy' && dataset === 'anime') label = 'MAL Score';
+
+                  return (
+                    <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={features[feature]} 
+                        onChange={() => toggleFeature(feature)} 
+                        style={{ accentColor: '#aa00ff', cursor: 'pointer', width: '13px', height: '13px', margin: 0 }} 
+                      />
+                      <span style={{ textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Dimensionality Reduction</h4>
                 <select value={dimReduction} onChange={(e) => setDimReduction(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
                   <option value="pca">PCA</option>
@@ -344,56 +403,49 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ClusterSelector */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Visible Cluster</h4>
                 <select value={visibleCluster} onChange={(e) => setVisibleCluster(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
                   <option value="all">All Galaxies</option>
-                  <option value="0">Pop & Dance</option>
-                  <option value="1">Rock & Punk</option>
-                  <option value="2">Metal</option>
-                  <option value="3">Hip-Hop & R&B</option>
-                  <option value="4">Electronic</option>
-                  <option value="5">Acoustic & Folk</option>
-                  <option value="6">World & Latin</option>
-                  <option value="7">Classical & Other</option>
+                  {currentGalaxyNames.map((name, i) => (
+                    <option key={i} value={i}>{name}</option>
+                  ))}
                 </select>
               </div>
 
-              {/* PointSizeSelector */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Point Size By</h4>
                 <select value={pointSizeBy} onChange={(e) => setPointSizeBy(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
                   <option value="default">Default</option>
-                  <option value="popularity">Popularity</option>
-                  <option value="energy">Energy</option>
-                  <option value="danceability">Danceability</option>
-                  <option value="valence">Valence (Mood)</option>
+                  <option value="popularity">{dataset === 'anime' ? 'MAL Popularity Rank' : 'Popularity'}</option>
+                  <option value="energy">{dataset === 'anime' ? 'MAL Score' : 'Energy'}</option>
+                  {dataset === 'spotify' && <option value="danceability">Danceability</option>}
+                  {dataset === 'spotify' && <option value="valence">Valence (Mood)</option>}
+                  {dataset === 'anime' && <option value="favorites">Total Favorites</option>}
+                  {dataset === 'anime' && <option value="members">Total Members</option>}
                 </select>
               </div>
 
-              {/* ColorSelector */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '1px' }}>Color By</h4>
                 <select value={colorBy} onChange={(e) => setColorBy(e.target.value)} style={{ padding: '6px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
-                  <option value="cluster">Cluster (Genre)</option>
+                  <option value="cluster">Cluster (Theme)</option>
                   <option value="popularity">Popularity Heatmap</option>
-                  <option value="energy">Energy Heatmap</option>
-                  <option value="danceability">Dance Heatmap</option>
-                  <option value="valence">Valence Heatmap</option>
+                  <option value="energy">{dataset === 'anime' ? 'Score Heatmap' : 'Energy Heatmap'}</option>
+                  {dataset === 'spotify' && <option value="danceability">Dance Heatmap</option>}
+                  {dataset === 'spotify' && <option value="valence">Valence Heatmap</option>}
+                  {dataset === 'anime' && <option value="favorites">Favorites Heatmap</option>}
                 </select>
               </div>
 
-              {/* UniverseViewSelector */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <h4 style={{ margin: 0, color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Universe View</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   
-                  {/* 2D View Button */}
                   <button 
                     onClick={() => setIs2DMode(true)}
                     style={{
-                      padding: '10px 14px',
+                      padding: '8px 14px',
                       background: is2DMode ? 'linear-gradient(90deg, rgba(170,0,255,0.4) 0%, rgba(85,0,255,0.4) 100%)' : 'rgba(0,0,0,0.4)',
                       border: `1px solid ${is2DMode ? '#aa00ff' : 'rgba(255,255,255,0.1)'}`,
                       color: is2DMode ? '#fff' : '#aaa',
@@ -401,22 +453,21 @@ export default function App() {
                       cursor: 'pointer',
                       textAlign: 'left',
                       fontFamily: 'sans-serif',
-                      fontSize: '0.85rem',
+                      fontSize: '0.8rem',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '12px',
                       transition: 'all 0.2s ease'
                     }}
                   >
-                    <span style={{ fontSize: '1.2rem', opacity: is2DMode ? 1 : 0.5 }}>🌌</span> 
+                    <span style={{ fontSize: '1.1rem', opacity: is2DMode ? 1 : 0.5 }}>🌌</span> 
                     <span style={{ fontWeight: is2DMode ? 'bold' : 'normal' }}>2D Galaxy</span>
                   </button>
 
-                  {/* 3D View Button */}
                   <button 
                     onClick={() => setIs2DMode(false)}
                     style={{
-                      padding: '10px 14px',
+                      padding: '8px 14px',
                       background: !is2DMode ? 'linear-gradient(90deg, rgba(170,0,255,0.4) 0%, rgba(85,0,255,0.4) 100%)' : 'rgba(0,0,0,0.4)',
                       border: `1px solid ${!is2DMode ? '#aa00ff' : 'rgba(255,255,255,0.1)'}`,
                       color: !is2DMode ? '#fff' : '#aaa',
@@ -424,24 +475,24 @@ export default function App() {
                       cursor: 'pointer',
                       textAlign: 'left',
                       fontFamily: 'sans-serif',
-                      fontSize: '0.85rem',
+                      fontSize: '0.8rem',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '12px',
                       transition: 'all 0.2s ease'
                     }}
                   >
-                    <span style={{ fontSize: '1.2rem', opacity: !is2DMode ? 1 : 0.5 }}>🧊</span> 
+                    <span style={{ fontSize: '1.1rem', opacity: !is2DMode ? 1 : 0.5 }}>🧊</span> 
                     <span style={{ fontWeight: !is2DMode ? 'bold' : 'normal' }}>3D Galaxy</span>
                   </button>
                   
                 </div>
               </div>
 
-              {/* Rebuild Button */}
               <button onClick={handleRebuild} disabled={isBuilding} style={{
                 marginTop: 'auto',
-                padding: '12px',
+                minHeight: '40px',
+                flexShrink: 0,
                 border: 'none', color: 'white', borderRadius: '6px',
                 cursor: isBuilding ? 'wait' : 'pointer', fontWeight: 'bold', letterSpacing: '1px', fontSize: '0.85rem',
                 background: isBuilding ? '#555' : 'linear-gradient(90deg, #aa00ff 0%, #5500ff 100%)', 
@@ -451,13 +502,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* <MainUniverse> */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between' }}>
             
-            {/* <StatsBar> */}
             <div style={{ display: 'flex', gap: '16px', pointerEvents: 'auto', marginTop: '-75px' }}>
               {[ 
-                { val: universeData.length ? universeData.length.toLocaleString() : 0, label: 'Songs' },
+                { val: universeData.length ? universeData.length.toLocaleString() : 0, label: dataset === 'anime' ? 'Shows' : 'Songs' },
                 { val: '8', label: 'Clusters' },
                 { val: Object.keys(features).filter(k => features[k]).length, label: 'Features' },
                 { val: '2', label: 'Dimensions' }
@@ -473,7 +522,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* <UniverseControls & Footer> */}
             <div style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
               width: '100%', pointerEvents: 'auto', 
@@ -481,7 +529,6 @@ export default function App() {
               fontFamily: 'sans-serif'
             }}>
               
-              {/* Control Bar */}
               <div style={{ 
                 display: 'flex', alignItems: 'center', gap: '16px',
                 background: 'rgba(15, 15, 20, 0.8)', padding: '12px 24px',
@@ -504,7 +551,6 @@ export default function App() {
 
                 <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.2)', margin: '0 8px' }} />
                 
-                {/* Toggle Switch */}
                 <label style={{ fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '8px', color: '#fff', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
                   Show Cluster Path
                   <div style={{
@@ -520,7 +566,6 @@ export default function App() {
                 </label>
               </div>
 
-              {/* Cluster Legend */}
               <div style={{ 
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
                 background: 'rgba(15, 15, 20, 0.8)', padding: '12px 24px',
@@ -529,7 +574,7 @@ export default function App() {
                 backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
                 width: '100%', flexWrap: 'nowrap', overflowX: 'auto' 
               }}>
-                {GALAXY_NAMES.map((name, i) => (
+                {currentGalaxyNames.map((name, i) => (
                   <div key={i} style={{ fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#ccc', whiteSpace: 'nowrap' }}>
                     <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: GALAXY_COLORS[i], boxShadow: `0 0 8px ${GALAXY_COLORS[i]}` }} />
                     {name}
@@ -539,61 +584,71 @@ export default function App() {
             </div>
           </div>
 
-          {/* <RightSidebar> */}
           <div style={{ width: '380px', display: 'flex', flexDirection: 'column', gap: '16px', pointerEvents: 'auto', maxHeight: '100%' }}>
             
-            {/* SONG DETAILS */}
             {selectedStar && (
               <>
-                {/* <SelectedSong> */}
                 <div style={{
                   background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
                   borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)'
                 }}>
-                  <h4 style={{ margin: '0 0 16px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Selected Song</h4>
+                  <h4 style={{ margin: '0 0 16px 0', color: '#ff0055', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>
+                    Selected {dataset === 'anime' ? 'Anime' : 'Song'}
+                  </h4>
                 
-                  <iframe 
-                    src={`https://open.spotify.com/embed/track/${selectedStar.track_id}?utm_source=generator&theme=0`} 
-                    width="100%" 
-                    height="152" 
-                    frameBorder="0" 
-                    allowFullScreen="" 
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-                    loading="lazy"
-                    style={{ borderRadius: '12px', marginBottom: '16px', background: '#282828' }}
-                  ></iframe>
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', marginBottom: '4px', lineHeight: '1.2' }}>
+                      {selectedStar.track_name}
+                    </div>
+                    <div style={{ fontSize: '0.9rem', color: '#aaa' }}>
+                      {selectedStar.artists}
+                    </div>
+                  </div>
+
+                  {dataset === 'spotify' && (
+                    <iframe 
+                      src={`https://open.spotify.com/embed/track/${selectedStar.track_id}?utm_source=generator&theme=0`} 
+                      width="100%" 
+                      height="152" 
+                      frameBorder="0" 
+                      allowFullScreen="" 
+                      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+                      loading="lazy"
+                      style={{ borderRadius: '12px', marginBottom: '16px', background: '#282828' }}
+                    ></iframe>
+                  )}
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
                     <p style={{ margin: 0 }}><strong>Super Genre:</strong> <span style={{ color: '#00ffff' }}>{selectedStar.super_genre}</span></p>
                     <p style={{ margin: 0 }}><strong>Sub-Genre:</strong> <span style={{ color: '#888' }}>{selectedStar.track_genre}</span></p>
                   </div>
                   
-                  {/* BUTTONS */}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-                    {/* Lyrics Button */}
-                    <button 
-                      onClick={() => window.open(`https://genius.com/search?q=${encodeURIComponent(selectedStar.artists + ' ' + selectedStar.track_name)}`, '_blank')}
-                      style={{ 
-                        flex: 1, padding: '8px', background: '#ffff64', border: 'none', color: 'black', 
-                        borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' 
-                      }}
-                    >
-                      📖 Lyrics
-                    </button>
+                    {dataset === 'spotify' ? (
+                      <button 
+                        onClick={() => window.open(`https://genius.com/search?q=${encodeURIComponent(selectedStar.artists + ' ' + selectedStar.track_name)}`, '_blank')}
+                        style={{ flex: 1, padding: '8px', background: '#ffff64', border: 'none', color: 'black', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+                      >
+                        📖 Lyrics
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => window.open(`https://myanimelist.net/anime/${selectedStar.track_id}`, '_blank')}
+                        style={{ flex: 1, padding: '8px', background: '#2e51a2', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+                      >
+                        📺 View MAL
+                      </button>
+                    )}
                     
                     <button 
                       onClick={() => setSelectedStar(null)} 
-                      style={{ 
-                        flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', 
-                        color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' 
-                      }}
+                      style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
                     >
                       Close Details
                     </button>
                   </div>
                 </div>
 
-                {/* <NearestNeighbors> */}
                 {selectedStar.neighbors && (
                   <div style={{
                     background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
@@ -631,12 +686,12 @@ export default function App() {
               </>
             )}
 
-            {/* CLUSTER INSIGHTS */}
             {!selectedStar && selectedCluster && (
               <div style={{
                 background: 'rgba(15, 15, 20, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px',
                 borderRadius: '12px', color: 'white', fontFamily: 'sans-serif', backdropFilter: 'blur(12px)',
-                display: 'flex', flexDirection: 'column', gap: '20px'
+                display: 'flex', flexDirection: 'column', gap: '16px',
+                overflowY: 'auto', flex: 1, minHeight: 0 
               }}>
                 <div>
                   <h4 style={{ margin: '0 0 4px 0', color: '#aa00ff', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Cluster Insights</h4>
@@ -645,7 +700,7 @@ export default function App() {
 
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                   <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#00ffff' }}>{selectedCluster.count.toLocaleString()}</span>
-                  <span style={{ color: '#888', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Songs</span>
+                  <span style={{ color: '#888', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total {dataset === 'anime' ? 'Shows' : 'Songs'}</span>
                 </div>
 
                 <div>
@@ -663,20 +718,34 @@ export default function App() {
                   <h4 style={{ margin: '0 0 16px 0', color: '#fff', fontSize: '0.8rem', textTransform: 'uppercase' }}>Average Characteristics</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     {Object.entries(selectedCluster.stats).map(([key, val]) => {
-                      const widthPct = key === 'loudness' ? Math.max(0, (val + 60) / 60 * 100) : (key === 'popularity' ? val : val * 100);
-                      const displayVal = key === 'loudness' ? `${val.toFixed(1)} dB` : (key === 'popularity' ? val.toFixed(0) : val.toFixed(2));
+                      let widthPct = val * 100;
+                      let displayVal = val.toFixed(2);
                       
+                      if (key === 'loudness') { 
+                        widthPct = Math.max(0, (val + 60) / 60 * 100); 
+                        displayVal = `${val.toFixed(1)} dB`; 
+                      } else if (key === 'popularity') { 
+                        widthPct = dataset === 'anime' ? Math.max(0, 100 - (val / 50)) : val;
+                        displayVal = dataset === 'anime' ? `#${val.toFixed(0)}` : val.toFixed(0); 
+                      } else if (key === 'energy' && dataset === 'anime') { 
+                        widthPct = (val / 10) * 100; 
+                        displayVal = val.toFixed(2); 
+                      } else if (key === 'episodes') { 
+                        widthPct = Math.min(100, val); 
+                        displayVal = val.toFixed(0); 
+                      } else if (key === 'members' || key === 'favorites') { 
+                        widthPct = Math.min(100, val / 10000); 
+                        displayVal = val.toLocaleString(undefined, {maximumFractionDigits:0}); 
+                      }
+
                       return (
                         <div key={key}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '6px', textTransform: 'capitalize', color: '#aaa' }}>
-                            <span>{key}</span>
+                            <span>{key === 'energy' && dataset === 'anime' ? 'MAL Score' : key}</span>
                             <span style={{ color: '#fff', fontWeight: 'bold' }}>{displayVal}</span>
                           </div>
                           <div style={{ width: '100%', background: 'rgba(255,255,255,0.05)', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{ 
-                              width: `${widthPct}%`, 
-                              background: 'linear-gradient(90deg, #aa00ff, #00ffff)', height: '100%', borderRadius: '3px'
-                            }} />
+                            <div style={{ width: `${widthPct}%`, background: 'linear-gradient(90deg, #aa00ff, #00ffff)', height: '100%', borderRadius: '3px' }} />
                           </div>
                         </div>
                       )
@@ -697,7 +766,6 @@ export default function App() {
   )
 }
 
-// --- ANIMATION COMPONENTS ---
 function SpaceBackground() {
   const { scene, size } = useThree()
   const [bgTexture, setBgTexture] = useState(null)
@@ -752,6 +820,7 @@ function TargetRing({ x, y, radius, color, speed }) {
     </mesh>
   )
 }
+
 function ConnectionLaser({ start, end, match, color }) {
   const particleRef = useRef()
   const intensity = Math.max(0, (match - 85) / 10) 
@@ -835,7 +904,6 @@ function CameraTracker({ setIsHomeView }) {
   const homePos = useMemo(() => new THREE.Vector3(0, 12, 130), [])
   
   useFrame(() => {
-    // If the camera moves more than 2 units away from home, trigger the button
     const isHome = camera.position.distanceTo(homePos) < 2
     setIsHomeView(isHome) 
   })
@@ -881,8 +949,7 @@ function CameraRig({ focusTarget, resetTick, is2DMode }) {
   return null
 }
 
-// --- THE STAR RENDERING ENGINE ---
-function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMode, pointSizeBy, colorBy, showClusterPaths }) {
+function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMode, pointSizeBy, colorBy, showClusterPaths, dataset, galaxyNames }) {
   const groupRef = useRef()
 
   useFrame(() => {
@@ -891,8 +958,6 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
       groupRef.current.scale.z = THREE.MathUtils.lerp(groupRef.current.scale.z, targetZ, 0.08)
     }
   })
-
-
 
   const glowTexture = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -925,11 +990,6 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
 
   const colorPalette = useMemo(() => GALAXY_COLORS.map(c => new THREE.Color(c)), [])
 
-  const GALAXY_NAMES = [
-    'Pop & Dance','Rock & Punk','Metal','Hip-Hop & R&B',
-    'Electronic','Acoustic & Folk','World & Latin','Classical & Other'
-  ]
-
   const galaxyCenters = useMemo(() => {
     const centers = {}
     data.forEach(star => {
@@ -942,7 +1002,7 @@ function UniverseStars({ data, onStarClick, selectedStar, onGalaxyClick, is2DMod
     return Object.values(centers).map(c => ({ x: c.x / c.count, y: c.y / c.count, id: c.id, count: c.count }))
   }, [data])
 
-const tiers = useMemo(() => {
+  const tiers = useMemo(() => {
     const dust = { pos: [], col: [], idx: [] }
     const core = { pos: [], col: [], idx: [] }
     const giants = { pos: [], col: [], idx: [] }
@@ -955,7 +1015,9 @@ const tiers = useMemo(() => {
       } else {
         const val = star[colorBy] || 0
         let norm = val
-        if (colorBy === 'popularity') norm = val / 100
+        if (colorBy === 'popularity') norm = dataset === 'anime' ? Math.max(0, 1 - (val / 5000)) : val / 100
+        if (colorBy === 'energy' && dataset === 'anime') norm = Math.max(0, (val - 5) / 5)
+        if (colorBy === 'favorites') norm = Math.min(1, val / 50000)
         
         c.lerpColors(new THREE.Color('#00ffff'), new THREE.Color('#ff00ff'), norm)
       }
@@ -968,13 +1030,27 @@ const tiers = useMemo(() => {
         let isCore = false
         
         if (pointSizeBy === 'popularity') { 
-          isGiant = val >= 75; isCore = val >= 45 
-        } else if (pointSizeBy === 'tempo') { 
-          isGiant = val >= 140; isCore = val >= 105
-        } else if (pointSizeBy === 'loudness') { 
-          isGiant = val >= -5; isCore = val >= -10
-        } else { 
-          isGiant = val >= 0.75; isCore = val >= 0.5 
+          if (dataset === 'anime') {
+            isGiant = val > 0 && val <= 500; 
+            isCore = val > 0 && val <= 2500; 
+          } else {
+            isGiant = val >= 75; 
+            isCore = val >= 45; 
+          }
+        } else if (pointSizeBy === 'energy') { 
+          if (dataset === 'anime') {
+            isGiant = val >= 8.0; 
+            isCore = val >= 7.0; 
+          } else {
+            isGiant = val >= 0.75; 
+            isCore = val >= 0.5; 
+          }
+        } else if (pointSizeBy === 'favorites') {
+          isGiant = val >= 10000; 
+          isCore = val >= 1000;
+        } else if (pointSizeBy === 'members') {
+          isGiant = val >= 500000; 
+          isCore = val >= 100000;
         }
 
         if (isGiant) target = giants
@@ -995,7 +1071,7 @@ const tiers = useMemo(() => {
       core: { p: new Float32Array(core.pos), c: new Float32Array(core.col), i: core.idx },
       giants: { p: new Float32Array(giants.pos), c: new Float32Array(giants.col), i: giants.idx }
     }
-  }, [data, pointSizeBy, colorBy])
+  }, [data, pointSizeBy, colorBy, dataset, colorPalette])
 
   const handleClick = (tierIndices) => (e) => {
     e.stopPropagation()
@@ -1104,7 +1180,6 @@ const tiers = useMemo(() => {
       {selectedStar && (
         <group position={[0, 0, 1]}>
           
-          {/* Target Ring */}
           <TargetRing 
             x={selectedStar.x} 
             y={selectedStar.y} 
@@ -1113,7 +1188,6 @@ const tiers = useMemo(() => {
             speed={0.02} 
           />
           
-          {/* Lasers */}
           {selectedStar.neighbors && selectedStar.neighbors.slice(0, 5).map((neighbor, idx) => (
             <ConnectionLaser 
               key={`conn-${idx}`}
@@ -1134,7 +1208,7 @@ const tiers = useMemo(() => {
             <div 
               onClick={(e) => {
                 e.stopPropagation() 
-                onGalaxyClick(center, GALAXY_NAMES[center.id])
+                onGalaxyClick(center, galaxyNames[center.id])
               }}
               style={{
                 background: 'rgba(15, 15, 20, 0.7)',
@@ -1155,9 +1229,9 @@ const tiers = useMemo(() => {
               }}
             >
               <span style={{ color: c.getStyle(), fontSize: '1rem' }}>✦</span>
-              <strong>{GALAXY_NAMES[center.id]}</strong>
+              <strong>{galaxyNames[center.id]}</strong>
               <span style={{ color: '#aaa', fontSize: '0.7rem', marginLeft: '4px' }}>
-                {center.count.toLocaleString()} songs
+                {center.count.toLocaleString()} {dataset === 'anime' ? 'shows' : 'songs'}
               </span>
             </div>
           </Html>
@@ -1169,7 +1243,6 @@ const tiers = useMemo(() => {
         
         return (
           <group position={[hoveredStar.x, hoveredStar.y, 2]}>
-            {/* Galaxy Colored Ring */}
             <mesh>
               <ringGeometry args={[1.0, 1.4, 32]} />
               <meshBasicMaterial color={glowColor} transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />

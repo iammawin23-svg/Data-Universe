@@ -46,11 +46,38 @@ global_state = {
     "nn_model": None
 }
 
-def generate_universe(custom_features=None, algorithm='pca'):
-    if raw_df is None:
-        return {"error": "Dataset not found."}
+def generate_universe(custom_features=None, algorithm='pca', dataset='spotify'):
     
-    df = raw_df.copy()
+    if dataset == 'anime':
+        print("\n--- LOADING ANIME UNIVERSE ---")
+        df = pd.read_csv('../Data/Raw/mal_anime.csv')
+        
+        for col in ['Episodes', 'Ranked', 'Popularity', 'Members', 'Favorites']:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('#', ''), errors='coerce').fillna(0)
+            
+        df = df.rename(columns={
+            'myanimelist_id': 'track_id', 
+            'title': 'track_name', 
+            'Studios': 'artists',
+            'Type': 'super_genre', 
+            'Genres': 'track_genre', 
+            'Score': 'energy',
+            'Popularity': 'popularity',
+            'Episodes': 'episodes',
+            'Ranked': 'ranked',
+            'Members': 'members',
+            'Favorites': 'favorites'
+        })
+
+        for col in ['danceability', 'tempo', 'loudness', 'valence', 'acousticness', 'instrumentalness', 'liveness', 'speechiness']:
+            df[col] = 0.5 
+            
+        df = df.dropna(subset=['track_name']).reset_index(drop=True)
+        
+    else:
+        print("\n--- LOADING SPOTIFY UNIVERSE ---")
+        df = pd.read_csv('../Data/Raw/spotify_data.csv').dropna().reset_index(drop=True)
+        df['super_genre'] = df['track_genre'].apply(lambda x: genre_to_super.get(x, {"name": "Other"})['name'])
     
     if not custom_features:
         custom_features = ['popularity', 'danceability', 'energy', 'loudness', 'valence', 'tempo']
@@ -58,6 +85,9 @@ def generate_universe(custom_features=None, algorithm='pca'):
     valid_features = [f for f in custom_features if f in df.columns]
     if len(valid_features) == 0:
         valid_features = ['energy']
+
+    for col in valid_features:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     X_raw = df[valid_features]
 
@@ -147,14 +177,18 @@ def generate_universe(custom_features=None, algorithm='pca'):
     df['y'] = df['y'].astype(float)
     df['z'] = df['z'].astype(float)
     
-    for col in ['popularity', 'energy', 'danceability', 'tempo', 'loudness', 'valence', 
-                'acousticness', 'instrumentalness', 'liveness', 'speechiness']:
-        if col in df.columns:
-            df[col] = df[col].fillna(0)
-    
-    json_str = df[['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y', 'z', 
+    export_cols = ['track_id', 'track_name', 'artists', 'super_genre', 'track_genre', 'color_id', 'x', 'y', 'z', 
                    'popularity', 'energy', 'danceability', 'tempo', 'loudness', 'valence',
-                   'acousticness', 'instrumentalness', 'liveness', 'speechiness']].to_json(orient='records')
+                   'acousticness', 'instrumentalness', 'liveness', 'speechiness',
+                   'episodes', 'ranked', 'members', 'favorites'] 
+                   
+    valid_export = [c for c in export_cols if c in df.columns]
+    
+    for col in valid_export:
+        if df[col].dtype in ['float64', 'int64']:
+            df[col] = df[col].fillna(0)
+            
+    json_str = df[valid_export].to_json(orient='records')
     print(f"JSON Conversion: {time.time() - start:.4f} seconds")
     print("-----------------------------------\n")
 
@@ -169,7 +203,7 @@ def get_song_neighbors(track_id, limit=5):
     if df is None or nn is None:
         return {"error": "Universe not built yet."}
 
-    song_idx_list = df.index[df['track_id'] == track_id].tolist()
+    song_idx_list = df.index[df['track_id'].astype(str) == str(track_id)].tolist()
     if not song_idx_list:
         return {"error": "Song not found."}
     

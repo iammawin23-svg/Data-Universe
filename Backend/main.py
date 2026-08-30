@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,14 +18,15 @@ app.add_middleware(
 class RebuildRequest(BaseModel):
     features: List[str]
     algorithm: str = "pca"
+    dataset: str = "spotify" 
 
 @app.get("/universe")
-def get_universe():
-    return generate_universe()
+def get_initial_universe():
+    return generate_universe(["energy", "danceability", "valence"], "pca", "spotify")
 
 @app.post("/rebuild")
 def rebuild(req: RebuildRequest):
-    return generate_universe(req.features, req.algorithm)
+    return generate_universe(req.features, req.algorithm, req.dataset)
 
 @app.get("/neighbors/{track_id}")
 def fetch_neighbors(track_id: str, limit: int = 5):
